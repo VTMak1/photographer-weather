@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F59E0B">
+<title>光影天气 — 摄影师的天色指南</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        golden: '#F59E0B',
+        'golden-light': '#FDE68A',
+        'blue-hour': '#6366F1',
+        'dawn-bg': '#FFFBEB',
+      }
+    }
+  }
+}
+</script>
+<style>
+  .photographer-card {
+    border-radius: 20px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    background: white;
+    border-left: 4px solid transparent;
+  }
+  .card-golden  { border-left-color: #F59E0B; }
+  .card-blue    { border-left-color: #6366F1; }
+  .card-purple  { border-left-color: #8B5CF6; }
+  .card-green   { border-left-color: #10B981; }
+  .skeleton {
+    background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .glass {
+    background: rgba(255, 251, 235, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .card-enter {
+    animation: cardSlideUp 0.4s ease-out both;
+  }
+  @keyframes cardSlideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .sheet-enter {
+    animation: sheetSlideUp 0.3s ease-out;
+  }
+  @keyframes sheetSlideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+  #city-sheet {
+    transform: translateY(100%);
+    transition: transform 0.3s ease-out;
+  }
+  #city-sheet.open {
+    transform: translateY(0);
+  }
+  #sheet-backdrop {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease-out;
+  }
+  #sheet-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+</style>
+</head>
+<body class="bg-[#FFFBEB] min-h-screen font-sans antialiased">
+
+<!-- 离线/陈旧数据提示 -->
+<div id="stale-banner" class="hidden fixed top-0 inset-x-0 z-50 bg-yellow-100 text-yellow-800 text-xs text-center py-1.5"></div>
+
+<!-- 顶部城市栏 -->
+<header id="city-bar" class="glass fixed top-0 inset-x-0 z-40 px-4 py-3 flex items-center justify-between shadow-sm">
+  <div class="flex items-center gap-2 cursor-pointer touch-target" id="city-trigger">
+    <i class="fa fa-map-marker text-golden text-lg"></i>
+    <span id="city-name" class="font-bold text-gray-800 text-lg">选择城市</span>
+    <i class="fa fa-chevron-down text-gray-400 text-xs"></i>
+  </div>
+  <button id="refresh-btn" class="touch-target w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/60 transition">
+    <i class="fa fa-refresh text-gray-500 text-lg"></i>
+  </button>
+  <button id="settings-btn" class="touch-target w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/60 transition" title="API Key 设置">
+    <i class="fa fa-cog text-gray-400 text-lg"></i>
+  </button>
+</header>
+
+<!-- 主内容区 -->
+<main id="main-content" class="pt-16 pb-8 px-4 max-w-lg mx-auto space-y-4">
+
+  <!-- 天气概览卡片 -->
+  <section id="card-weather" class="photographer-card card-golden card-enter" style="animation-delay:0ms">
+    <div class="skeleton h-48 rounded-xl"></div>
+  </section>
+
+  <!-- 光影时间卡片 -->
+  <section id="card-light" class="photographer-card card-blue card-enter" style="animation-delay:80ms">
+    <div class="skeleton h-40 rounded-xl"></div>
+  </section>
+
+  <!-- 能见度卡片 -->
+  <section id="card-visibility" class="photographer-card card-purple card-enter" style="animation-delay:160ms">
+    <div class="skeleton h-36 rounded-xl"></div>
+  </section>
+
+  <!-- 朝霞晚霞概率卡片 -->
+  <section id="card-sunset-glow" class="photographer-card card-purple card-enter" style="animation-delay:240ms">
+    <div class="skeleton h-36 rounded-xl"></div>
+  </section>
+
+  <!-- 拍摄主题推荐卡片 -->
+  <section id="card-recommend" class="photographer-card card-green card-enter" style="animation-delay:320ms">
+    <div class="skeleton h-44 rounded-xl"></div>
+  </section>
+
+</main>
+
+<!-- 城市选择面板遮罩 -->
+<div id="sheet-backdrop" class="fixed inset-0 z-50 bg-black/40" onclick="App.closeCitySheet()"></div>
+
+<!-- 城市选择底部面板 -->
+<div id="city-sheet" class="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-3xl max-h-[70vh] overflow-y-auto shadow-2xl">
+  <div class="sticky top-0 bg-white pt-4 pb-2 px-5 rounded-t-3xl z-10">
+    <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-3"></div>
+    <h3 class="font-bold text-gray-800 text-lg mb-3">选择城市</h3>
+
+    <!-- GPS 按钮 -->
+    <button id="btn-gps" class="w-full flex items-center gap-3 p-3 bg-amber-50 rounded-xl hover:bg-amber-100 transition mb-3 touch-target">
+      <i class="fa fa-location-arrow text-golden text-xl"></i>
+      <span class="font-medium text-gray-700">使用当前位置</span>
+      <span class="text-xs text-gray-400 ml-auto" id="gps-status"></span>
+    </button>
+
+    <!-- 搜索框 -->
+    <div class="relative mb-3">
+      <i class="fa fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+      <input id="city-search-input" type="text" placeholder="搜索城市…" autocomplete="off"
+        class="w-full pl-10 pr-4 py-2.5 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-golden text-gray-700">
+    </div>
+  </div>
+
+  <!-- 搜索结果/收藏列表 -->
+  <div id="city-results" class="px-5 pb-6">
+    <div id="favorites-section" class="mb-3">
+      <div class="text-xs text-gray-400 mb-2">📌 已收藏城市</div>
+      <div id="favorites-list" class="space-y-1"></div>
+    </div>
+    <div id="search-results" class="hidden">
+      <div class="text-xs text-gray-400 mb-2">搜索结果</div>
+      <div id="search-results-list" class="space-y-1"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 初始设置引导（API Key 未配置时显示） -->
+<div id="setup-overlay" class="hidden fixed inset-0 z-[60] bg-[#FFFBEB] flex items-center justify-center p-5">
+  <div class="max-w-sm w-full text-center">
+    <div class="text-6xl mb-4">📷</div>
+    <h1 class="text-2xl font-bold text-gray-800 mb-2">光影天气</h1>
+    <p class="text-gray-500 mb-6">摄影师的天色指南</p>
+    <div class="bg-white rounded-2xl shadow-lg p-6 text-left">
+      <p class="text-sm text-gray-700 mb-4">
+        需要和风天气 API Key 才能查询天气数据。
+      </p>
+      <ol class="text-sm text-gray-600 mb-4 space-y-1 list-decimal list-inside">
+        <li>打开 <a href="https://id.qweather.com/#/register" class="text-blue-hour underline font-bold" target="_blank">和风天气注册页</a> 注册</li>
+        <li>登录后在 <a href="https://console.qweather.com/" class="text-blue-hour underline font-bold" target="_blank">控制台</a> 创建免费 Key</li>
+        <li>复制 Key 粘贴到下方</li>
+      </ol>
+      <input id="api-key-input" type="text" placeholder="粘贴 API Key 到这里…"
+        class="w-full px-4 py-3 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-golden text-sm mb-3">
+      <button id="btn-save-key" class="w-full bg-golden text-white py-3 rounded-xl font-bold text-lg">
+        开始使用
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===========================
+// 配置 & 缓存模块
+// ===========================
+const CONFIG = {
+  KEY: '66fc3cf8a3bb4a2f9688b2684fad995e',
+  QWEATHER_BASE: 'https://n43aara9tt.re.qweatherapi.com/v7',
+  CACHE_WEATHER_MS: 15 * 60 * 1000,
+  CACHE_SUN_MS: 4 * 60 * 60 * 1000,
+};
+
+const Cache = {
+  set(key, data) {
+    const record = { ts: Date.now(), data };
+    localStorage.setItem('pw_' + key, JSON.stringify(record));
+  },
+  get(key, maxAge) {
+    const raw = localStorage.getItem('pw_' + key);
+    if (!raw) return null;
+    try {
+      const record = JSON.parse(raw);
+      if (maxAge !== Infinity && Date.now() - record.ts > maxAge) {
+        localStorage.removeItem('pw_' + key);
+        return null;
+      }
+      return record.data;
+    } catch { return null; }
+  },
+  getTs(key) {
+    const raw = localStorage.getItem('pw_' + key);
+    if (!raw) return null;
+    try { return JSON.parse(raw).ts; } catch { return null; }
+  },
+  remove(key) { localStorage.removeItem('pw_' + key); }
+};
+
+// ===========================
+// API 模块
+// ===========================
+const API = {
+  async fetchJSON(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return resp.json();
+  },
+
+  async getWeatherNow(locationId) {
+    const cacheKey = `weather_${locationId}`;
+    const cached = Cache.get(cacheKey, CONFIG.CACHE_WEATHER_MS);
+    if (cached) return cached;
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/weather/now?location=${locationId}&key=${CONFIG.KEY}`;
+      const data = await this.fetchJSON(url);
+      if (data.code !== '200') throw new Error('天气数据获取失败: ' + (data.code || ''));
+      Cache.set(cacheKey, data.now);
+      return data.now;
+    } catch (e) {
+      const stale = Cache.get(cacheKey, Infinity);
+      if (stale) return stale;
+      throw e;
+    }
+  },
+
+  async getWeather24h(locationId) {
+    const cacheKey = `weather24h_${locationId}`;
+    const cached = Cache.get(cacheKey, CONFIG.CACHE_WEATHER_MS);
+    if (cached) return cached;
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/weather/24h?location=${locationId}&key=${CONFIG.KEY}`;
+      const data = await this.fetchJSON(url);
+      if (data.code !== '200') throw new Error('逐小时数据获取失败');
+      Cache.set(cacheKey, data.hourly);
+      return data.hourly;
+    } catch (e) {
+      const stale = Cache.get(cacheKey, Infinity);
+      if (stale) return stale;
+      throw e;
+    }
+  },
+
+  async getSunTimes(locationId, date) {
+    // QWeather 要求 yyyyMMdd 格式
+    const d = date ? new Date(date) : new Date();
+    const dateStr = date ? date : d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+    const cacheKey = `sun_${locationId}_${dateStr}`;
+    const cached = Cache.get(cacheKey, CONFIG.CACHE_SUN_MS);
+    if (cached) return cached;
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/astronomy/sun?location=${locationId}&date=${dateStr}&key=${CONFIG.KEY}`;
+      const data = await this.fetchJSON(url);
+      if (data.code !== '200') throw new Error('日出日落数据获取失败');
+      Cache.set(cacheKey, data);
+      return data;
+    } catch (e) {
+      const stale = Cache.get(cacheKey, Infinity);
+      if (stale) return stale;
+      throw e;
+    }
+  },
+
+  async getAirNow(locationId) {
+    const cacheKey = `air_${locationId}`;
+    const cached = Cache.get(cacheKey, CONFIG.CACHE_WEATHER_MS);
+    if (cached) return cached;
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/air/now?location=${locationId}&key=${CONFIG.KEY}`;
+      const data = await this.fetchJSON(url);
+      if (data.code !== '200') throw new Error('空气质量数据获取失败');
+      Cache.set(cacheKey, data.now);
+      return data.now;
+    } catch (e) {
+      const stale = Cache.get(cacheKey, Infinity);
+      if (stale) return stale;
+      return null;
+    }
+  },
+
+};
+
+// ===========================
+// 地理位置 & 城市管理
+// ===========================
+const Geo = {
+  async getCurrentPosition() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) { reject(new Error('浏览器不支持定位')); return; }
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        err => {
+          const msgs = { 1: '请允许定位权限', 2: '无法获取位置信息', 3: '定位超时' };
+          reject(new Error(msgs[err.code] || '定位失败'));
+        },
+        { timeout: 10000, enableHighAccuracy: true }
+      );
+    });
+  },
+
+  async getCityByCoords(lat, lon) {
+    // QWeather 直接接受坐标作为 location 参数
+    const location = `${lon.toFixed(2)},${lat.toFixed(2)}`;
+    return { id: location, name: '当前位置', lat, lon };
+  },
+
+  getFavoriteCities() {
+    try { return JSON.parse(localStorage.getItem('pw_favorites') || '[]'); }
+    catch { return []; }
+  },
+
+  addFavoriteCity(city) {
+    const cities = this.getFavoriteCities().filter(c => c.id !== city.id);
+    cities.unshift({ id: city.id, name: city.name, adm1: city.adm1 || '' });
+    if (cities.length > 10) cities.pop();
+    localStorage.setItem('pw_favorites', JSON.stringify(cities));
+  },
+
+  removeFavoriteCity(cityId) {
+    const cities = this.getFavoriteCities().filter(c => c.id !== cityId);
+    localStorage.setItem('pw_favorites', JSON.stringify(cities));
+    App.renderFavorites();
+  }
+};
+
+// ===========================
+// 计算引擎
+// ===========================
+const CalcEngine = {
+  getGoldenHour(sunrise, sunset) {
+    const sr = new Date(sunrise);
+    const ss = new Date(sunset);
+    const morningEnd = new Date(sr.getTime() + 40 * 60000);
+    const eveningStart = new Date(ss.getTime() - 40 * 60000);
+    return {
+      morning: { start: sunrise, end: morningEnd.toISOString() },
+      evening: { start: eveningStart.toISOString(), end: sunset }
+    };
+  },
+
+  getBlueHour(sunrise, sunset) {
+    const sr = new Date(sunrise);
+    const ss = new Date(sunset);
+    const morningStart = new Date(sr.getTime() - 40 * 60000);
+    const morningEnd   = new Date(sr.getTime() - 20 * 60000);
+    const eveningStart = new Date(ss.getTime() + 20 * 60000);
+    const eveningEnd   = new Date(ss.getTime() + 40 * 60000);
+    return {
+      morning: { start: morningStart.toISOString(), end: morningEnd.toISOString() },
+      evening: { start: eveningStart.toISOString(), end: eveningEnd.toISOString() }
+    };
+  },
+
+  getCountdown(sunrise, sunset) {
+    const now = Date.now();
+    const sr = new Date(sunrise).getTime();
+    const ss = new Date(sunset).getTime();
+    if (now < sr) return { target: '日出', ms: sr - now };
+    if (now < ss) return { target: '日落', ms: ss - now };
+    return { target: '明天日出', ms: sr + 86400000 - now };
+  },
+
+  getVisibilityRating(km) {
+    if (km >= 15) return { level: '极佳', color: '#F59E0B', icon: 'star', desc: '远山天际线一览无余，风光长焦绝佳时机', pct: 100 };
+    if (km >= 10) return { level: '良好', color: '#10B981', icon: 'check-circle', desc: '城市天际线清晰可见，适合各类风光拍摄', pct: 75 };
+    if (km >= 5)  return { level: '一般', color: '#F59E0B', icon: 'minus-circle', desc: '远景略显朦胧，建议中近景构图', pct: 50 };
+    if (km >= 1)  return { level: '较差', color: '#F97316', icon: 'exclamation-circle', desc: '能见度偏低，适合氛围感/雾感创作', pct: 25 };
+    return { level: '极差', color: '#EF4444', icon: 'times-circle', desc: '浓雾或严重污染，建议室内或微距拍摄', pct: 5 };
+  },
+
+  // 朝霞/晚霞概率计算
+  // 核心原理：云量30-70%是火烧云最佳条件，再综合湿度判断
+  getGlowProbability(hourlyData, isSunrise, weatherNow) {
+    // 扩大目标时段范围（日出前后/日落前后各3小时）
+    const targetHours = isSunrise ? [4, 5, 6, 7, 8] : [15, 16, 17, 18, 19];
+    let cloudSum = 0, humiditySum = 0, count = 0;
+    for (const h of hourlyData) {
+      const hour = new Date(h.fxTime).getHours();
+      if (targetHours.includes(hour)) {
+        cloudSum += parseInt(h.cloud) || 0;
+        humiditySum += parseInt(h.humidity) || 0;
+        count++;
+      }
+    }
+    // 回退：如果逐小时数据覆盖不到目标时段（如晚上查晚霞），用当前天气数据
+    if (count === 0 && weatherNow) {
+      const cloud = parseInt(weatherNow.cloud) || 50;
+      const humidity = parseInt(weatherNow.humidity) || 50;
+      cloudSum = cloud; humiditySum = humidity; count = 1;
+    }
+    if (count === 0) return 0;
+    const avgCloud = cloudSum / count;
+    const avgHumidity = humiditySum / count;
+    // 云量评分：30-70%最佳（有云才能烧，但不能全阴）
+    let cloudScore = 0;
+    if (avgCloud >= 30 && avgCloud <= 70) cloudScore = 1;
+    else if (avgCloud >= 10 && avgCloud <= 90) cloudScore = 0.6;
+    else cloudScore = 0.2;
+    // 湿度评分：40-70%最佳（太干无霞光，太湿有雾）
+    let humidityScore = 0;
+    if (avgHumidity >= 40 && avgHumidity <= 70) humidityScore = 1;
+    else if (avgHumidity >= 20 && avgHumidity <= 90) humidityScore = 0.6;
+    else humidityScore = 0.3;
+    return Math.round((cloudScore * 0.6 + humidityScore * 0.4) * 100);
+  }
+};
+
+// ===========================
+// 推荐引擎
+// ===========================
+const RecommendEngine = {
+  themes: [
+    { id: 'sunset-city', name: '城市日落风光', weight: 5, icon: 'sun-o',
+      score: ctx => ctx.sunsetGlow * 0.5 + ctx.visibilityScore * 0.3 + (ctx.isClear ? 20 : 0) },
+    { id: 'blue-hour-city', name: '蓝调城市夜景', weight: 4, icon: 'moon-o',
+      score: ctx => (ctx.cloudCover < 30 ? 40 : 10) + (ctx.windSpeed < 15 ? 30 : 10) + (ctx.isClear ? 20 : 0) },
+    { id: 'morning-fog', name: '晨雾风光', weight: 4, icon: 'cloud',
+      score: ctx => (ctx.visibilityKm >= 1 && ctx.visibilityKm <= 5 ? 50 : 10) + (ctx.humidity > 70 ? 30 : 10) + (ctx.isMorning ? 20 : 0) },
+    { id: 'rain-fresh', name: '雨后清新街拍', weight: 3, icon: 'tint',
+      score: ctx => (ctx.rainRecent ? 50 : 0) + (ctx.visibilityKm > 5 ? 30 : 10) },
+    { id: 'arch-shadow', name: '建筑几何光影', weight: 3, icon: 'building-o',
+      score: ctx => (ctx.isClear ? 50 : 10) + (ctx.isGoldenHour ? 30 : 0) },
+    { id: 'portrait-soft', name: '人像柔光', weight: 3, icon: 'user-o',
+      score: ctx => (ctx.cloudCover > 40 && ctx.cloudCover < 80 ? 40 : 20) + (ctx.windSpeed < 10 ? 30 : 10) },
+    { id: 'macro-eco', name: '微距生态', weight: 3, icon: 'leaf',
+      score: ctx => (ctx.humidity > 60 ? 40 : 15) + (ctx.windSpeed < 10 ? 30 : 10) + (ctx.rainRecent ? 20 : 0) },
+    { id: 'bw-doc', name: '黑白纪实', weight: 2, icon: 'adjust',
+      score: ctx => (ctx.isOvercast ? 45 : 15) + (ctx.visibilityKm > 3 ? 20 : 5) }
+  ],
+
+  getRecommendations(context) {
+    const scored = this.themes.map(t => ({
+      ...t,
+      points: t.score(context) * (t.weight / 5)
+    }));
+    scored.sort((a, b) => b.points - a.points);
+    return scored.slice(0, 3);
+  }
+};
+
+// ===========================
+// UI 渲染函数
+// ===========================
+function getWeatherEmoji(code) {
+  const map = {
+    '100': '☀️','101': '🌤️','102': '⛅','103': '☁️','104': '☁️',
+    '300': '🌧️','301': '🌧️','302': '⛈️','304': '🌨️','305': '🌦️',
+    '306': '🌧️','307': '🌧️','400': '❄️','401': '❄️','402': '🌨️',
+    '500': '🌫️','501': '🌫️','502': '🌫️'
+  };
+  return map[code] || '🌤️';
+}
+
+function getWeatherBg(iconCode) {
+  const gradients = {
+    '100': 'bg-gradient-to-br from-amber-200 via-amber-100 to-amber-50',
+    '101': 'bg-gradient-to-br from-amber-200 via-amber-100 to-amber-50',
+    '102': 'bg-gradient-to-br from-slate-200 via-amber-100 to-amber-50',
+    '103': 'bg-gradient-to-br from-slate-300 via-slate-100 to-slate-50',
+    '104': 'bg-gradient-to-br from-slate-300 via-slate-100 to-slate-50',
+    '300': 'bg-gradient-to-br from-slate-400 via-blue-200 to-slate-100',
+    '301': 'bg-gradient-to-br from-slate-400 via-blue-200 to-slate-100',
+    '302': 'bg-gradient-to-br from-slate-500 via-blue-300 to-slate-200',
+    '400': 'bg-gradient-to-br from-slate-400 via-blue-100 to-white',
+    '500': 'bg-gradient-to-br from-slate-300 via-amber-100 to-slate-100',
+  };
+  return gradients[iconCode] || gradients['100'];
+}
+
+function renderWeatherCard(data) {
+  const card = document.getElementById('card-weather');
+  const iconCode = data.icon || '100';
+  card.className = `photographer-card card-golden ${getWeatherBg(iconCode)} card-enter`;
+  card.innerHTML = `
+    <div class="text-center py-4">
+      <div class="text-6xl mb-1">${getWeatherEmoji(iconCode)}</div>
+      <div class="text-5xl font-bold text-gray-800 mb-1">${data.temp}°</div>
+      <div class="text-gray-600 mb-4 text-base">${data.text} · 体感 ${data.feelsLike}°</div>
+      <div class="grid grid-cols-4 gap-2 text-sm text-gray-600">
+        <div><i class="fa fa-flag mr-1"></i>${data.windDir || '-'}${data.windScale || ''}级</div>
+        <div><i class="fa fa-tint mr-1"></i>${data.humidity || '-'}%</div>
+        <div><i class="fa fa-tachometer mr-1"></i>${data.pressure || '-'}hPa</div>
+        <div><i class="fa fa-cloud mr-1"></i>${data.cloud || '-'}%</div>
+      </div>
+      <div class="text-xs text-gray-400 mt-3" id="weather-update-time"></div>
+    </div>
+  `;
+}
+
+function renderLightCard(sunData) {
+  const card = document.getElementById('card-light');
+  const sunrise = sunData.sunrise, sunset = sunData.sunset;
+  if (!sunrise || !sunset) {
+    card.innerHTML = `<div class="text-center text-gray-400 py-8">日出日落数据暂不可用</div>`;
+    return;
+  }
+  const golden = CalcEngine.getGoldenHour(sunrise, sunset);
+  const blue = CalcEngine.getBlueHour(sunrise, sunset);
+  const countdown = CalcEngine.getCountdown(sunrise, sunset);
+  const fmt = iso => {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' });
+  };
+  const h = Math.floor(countdown.ms / 3600000);
+  const m = Math.floor((countdown.ms % 3600000) / 60000);
+
+  card.className = 'photographer-card card-blue card-enter';
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-4">
+      <i class="fa fa-clock-o text-blue-hour text-xl"></i>
+      <span class="font-bold text-gray-700 text-lg">光影时间</span>
+    </div>
+    <div class="relative py-3 mb-4">
+      <div class="flex justify-between text-xs text-gray-500 mb-2">
+        <span>${fmt(sunrise)} 日出</span>
+        <span>日落 ${fmt(sunset)}</span>
+      </div>
+      <div class="h-3 rounded-full overflow-hidden" style="background:linear-gradient(to right, #6366F1 0%, #6366F1 15%, #F59E0B 25%, #FDE68A 40%, #FDE68A 60%, #F59E0B 75%, #6366F1 85%, #6366F1 100%)"></div>
+      <div class="flex justify-between text-xs text-gray-400 mt-1">
+        <span>蓝→金→</span><span>→金→蓝</span>
+      </div>
+    </div>
+    <div class="space-y-1.5 text-sm">
+      <div class="flex justify-between"><span class="text-amber-500">🌅 清晨黄金</span><span>${fmt(golden.morning.start)} - ${fmt(golden.morning.end)}</span></div>
+      <div class="flex justify-between"><span class="text-blue-500">🌙 清晨蓝调</span><span>${fmt(blue.morning.start)} - ${fmt(blue.morning.end)}</span></div>
+      <div class="border-t my-1.5"></div>
+      <div class="flex justify-between"><span class="text-amber-500">🌇 傍晚黄金</span><span>${fmt(golden.evening.start)} - ${fmt(golden.evening.end)}</span></div>
+      <div class="flex justify-between"><span class="text-blue-500">🌙 傍晚蓝调</span><span>${fmt(blue.evening.start)} - ${fmt(blue.evening.end)}</span></div>
+    </div>
+    <div class="mt-4 pt-3 border-t border-gray-100 text-center">
+      <span class="text-blue-hour font-bold">⏱ 距离${countdown.target}还有 ${h}h ${m}min</span>
+    </div>
+  `;
+}
+
+function renderVisibilityCard(km) {
+  const card = document.getElementById('card-visibility');
+  const r = CalcEngine.getVisibilityRating(km);
+  card.className = 'photographer-card card-purple card-enter';
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-3">
+      <i class="fa fa-eye text-purple-500 text-xl"></i>
+      <span class="font-bold text-gray-700 text-lg">能见度</span>
+    </div>
+    <div class="flex items-end gap-2 mb-3">
+      <span class="text-5xl font-bold" style="color:${r.color}">${km}</span>
+      <span class="text-gray-500 text-lg mb-1">公里</span>
+      <span class="ml-auto px-3 py-1 rounded-full text-sm font-bold text-white" style="background:${r.color}">${r.level}</span>
+    </div>
+    <div class="w-full bg-gray-200 rounded-full h-2.5 mb-3">
+      <div class="h-2.5 rounded-full transition-all duration-700" style="width:${r.pct}%;background:${r.color}"></div>
+    </div>
+    <div class="flex justify-between text-xs text-gray-400 mb-3"><span>0</span><span>5</span><span>10</span><span>15</span><span>20km</span></div>
+    <div class="bg-gray-50 rounded-xl p-3 text-sm text-gray-600"><i class="fa fa-lightbulb-o mr-1" style="color:${r.color}"></i>${r.desc}</div>
+  `;
+}
+
+function renderGlowCard(sunriseProb, sunsetProb) {
+  const card = document.getElementById('card-sunset-glow');
+  card.className = 'photographer-card card-purple card-enter';
+  const srLabel = sunriseProb >= 70 ? '很可能烧！' : sunriseProb >= 50 ? '有希望' : sunriseProb >= 30 ? '概率较低' : '不太可能';
+  const ssLabel = sunsetProb >= 70 ? '很可能烧！' : sunsetProb >= 50 ? '有希望' : sunsetProb >= 30 ? '概率较低' : '不太可能';
+  const higher = sunsetProb >= sunriseProb ? 'sunset' : 'sunrise';
+  const max = Math.max(sunriseProb, sunsetProb);
+  const advice = max >= 70 ? '💡 高概率霞光！建议提前 1 小时到达机位'
+    : max >= 50 ? '💡 有一定概率出霞，值得关注天气变化'
+    : max >= 30 ? '💡 霞光条件一般，可考虑其他拍摄主题'
+    : '💡 今日霞光条件不佳，建议关注其他时段';
+
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-4">
+      <i class="fa fa-fire text-purple-500 text-xl"></i>
+      <span class="font-bold text-gray-700 text-lg">朝霞 / 晚霞</span>
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div class="text-center p-4 rounded-xl ${higher==='sunrise'?'bg-amber-50 ring-2 ring-amber-300':'bg-gray-50'}">
+        <div class="text-3xl mb-1">🌄</div>
+        <div class="text-3xl font-bold ${higher==='sunrise'?'text-golden':'text-gray-400'}">${sunriseProb}%</div>
+        <div class="text-xs text-gray-500 mt-1">明早晨霞</div>
+        <div class="text-xs font-medium ${higher==='sunrise'?'text-golden':'text-gray-400'} mt-1">${srLabel}</div>
+      </div>
+      <div class="text-center p-4 rounded-xl ${higher==='sunset'?'bg-amber-50 ring-2 ring-amber-300':'bg-gray-50'}">
+        <div class="text-3xl mb-1">🌇</div>
+        <div class="text-3xl font-bold ${higher==='sunset'?'text-golden':'text-gray-400'}">${sunsetProb}%</div>
+        <div class="text-xs text-gray-500 mt-1">今晚晚霞</div>
+        <div class="text-xs font-medium ${higher==='sunset'?'text-golden':'text-gray-400'} mt-1">${ssLabel}</div>
+      </div>
+    </div>
+    <div class="mt-4 pt-3 border-t border-gray-100 text-sm text-gray-600 text-center">${advice}</div>
+  `;
+}
+
+function renderRecommendCard(recommendations) {
+  const card = document.getElementById('card-recommend');
+  card.className = 'photographer-card card-green card-enter';
+  const best = recommendations[0];
+  const stars = '★'.repeat(Math.min(5, Math.round(best.points / 20))) + '☆'.repeat(Math.max(0, 5 - Math.round(best.points / 20)));
+
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-4">
+      <i class="fa fa-camera text-green-500 text-xl"></i>
+      <span class="font-bold text-gray-700 text-lg">今日适合拍摄</span>
+    </div>
+    <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-5 text-center mb-3">
+      <div class="text-4xl mb-2"><i class="fa fa-${best.icon} text-green-500"></i></div>
+      <div class="text-xl font-bold text-gray-800 mb-1">${best.name}</div>
+      <div class="text-golden text-lg mb-2">${stars}</div>
+      <div class="text-sm text-gray-500">综合天气数据智能推荐</div>
+    </div>
+    ${recommendations.length > 1 ? `
+    <div class="text-sm text-gray-500 mb-2">📋 次选方案</div>
+    <div class="space-y-2">
+      ${recommendations.slice(1).map(r => `
+        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+          <i class="fa fa-${r.icon} text-gray-400 text-lg"></i>
+          <span class="flex-1 font-medium text-gray-600">${r.name}</span>
+          <span class="text-xs text-gray-400">${Math.round(r.points)}分</span>
+        </div>
+      `).join('')}
+    </div>` : ''}
+  `;
+}
+
+function showSkeletons() {
+  const heights = { 'card-weather':'h-48', 'card-light':'h-40', 'card-visibility':'h-36', 'card-sunset-glow':'h-36', 'card-recommend':'h-44' };
+  Object.entries(heights).forEach(([id, h]) => {
+    document.getElementById(id).innerHTML = `<div class="skeleton ${h} rounded-xl"></div>`;
+  });
+}
+
+// ===========================
+// 主控制器
+// ===========================
+const App = {
+  currentCity: null,
+  currentData: null,
+  searchTimer: null,
+
+  // 内置主要城市列表（QWeather Location ID）
+  // 内置城市列表 — compact format: name|id|prov;name|id|prov;...
+  // 由 QWeather China-City-List 自动生成, 共 817 个城市
+  CITY_DATA: `北京|101010100|北京;海淀|101010200|北京;朝阳|101010300|北京;顺义|101010400|北京;怀柔|101010500|北京;通州|101010600|北京;昌平|101010700|北京;延庆|101010800|北京;丰台|101010900|北京;石景山|101011000|北京;大兴|101011100|北京;房山|101011200|北京;密云|101011300|北京;门头沟|101011400|北京;平谷|101011500|北京;东城|101011600|北京;西城|101011700|北京;上海|101020100|上海;闵行|101020200|上海;宝山|101020300|上海;黄浦|101020400|上海;嘉定|101020500|上海;浦东新区|101020600|上海;金山|101020700|上海;青浦|101020800|上海;松江|101020900|上海;奉贤|101021000|上海;崇明|101021100|上海;徐汇|101021200|上海;长宁|101021300|上海;静安|101021400|上海;普陀|101021500|上海;虹口|101021600|上海;杨浦|101021700|上海;天津|101030100|天津;武清|101030200|天津;宝坻|101030300|天津;东丽|101030400|天津;西青|101030500|天津;北辰|101030600|天津;宁河|101030700|天津;和平|101030800|天津;静海|101030900|天津;津南|101031000|天津;滨海新区|101031100|天津;河东|101031200|天津;河西|101031300|天津;蓟州|101031400|天津;南开|101031500|天津;河北|101031600|天津;红桥|101031700|天津;重庆|101040100|重庆;永川|101040200|重庆;合川|101040300|重庆;南川|101040400|重庆;江津|101040500|重庆;北碚|101040800|重庆;巴南|101040900|重庆;长寿|101041000|重庆;黔江|101041100|重庆;渝中|101041200|重庆;万州|101041300|重庆;涪陵|101041400|重庆;城口|101041600|重庆;云阳|101041700|重庆;巫溪|101041800|重庆;奉节|101041900|重庆;巫山|101042000|重庆;潼南|101042100|重庆;垫江|101042200|重庆;梁平|101042300|重庆;忠县|101042400|重庆;石柱|101042500|重庆;大足|101042600|重庆;荣昌|101042700|重庆;铜梁|101042800|重庆;璧山|101042900|重庆;丰都|101043000|重庆;武隆|101043100|重庆;彭水|101043200|重庆;綦江|101043300|重庆;酉阳|101043400|重庆;大渡口|101043500|重庆;秀山|101043600|重庆;沙坪坝|101043800|重庆;九龙坡|101043900|重庆;南岸|101044000|重庆;开州|101044100|重庆;两江新区|101044200|重庆;哈尔滨|101050101|黑龙江;齐齐哈尔|101050201|黑龙江;牡丹江|101050301|黑龙江;佳木斯|101050401|黑龙江;绥化|101050501|黑龙江;黑河|101050601|黑龙江;大兴安岭|101050701|黑龙江;伊春|101050801|黑龙江;大庆|101050901|黑龙江;七台河|101051002|黑龙江;鸡西|101051101|黑龙江;鹤岗|101051201|黑龙江;双鸭山|101051301|黑龙江;长春|101060101|吉林;吉林|101060201|吉林;延边|101060306|吉林;四平|101060401|吉林;通化|101060501|吉林;白城|101060601|吉林;辽源|101060701|吉林;松原|101060801|吉林;白山|101060901|吉林;沈阳|101070101|辽宁;大连|101070201|辽宁;鞍山|101070301|辽宁;抚顺|101070401|辽宁;本溪|101070501|辽宁;丹东|101070601|辽宁;锦州|101070701|辽宁;营口|101070801|辽宁;阜新|101070901|辽宁;辽阳|101071001|辽宁;铁岭|101071101|辽宁;朝阳|101071201|辽宁;盘锦|101071301|辽宁;葫芦岛|101071401|辽宁;呼和浩特|101080101|内蒙古;包头|101080201|内蒙古;乌海|101080301|内蒙古;乌兰察布|101080405|内蒙古;通辽|101080501|内蒙古;赤峰|101080601|内蒙古;鄂尔多斯|101080701|内蒙古;巴彦淖尔|101080811|内蒙古;锡林郭勒|101080902|内蒙古;呼伦贝尔|101081013|内蒙古;兴安盟|101081108|内蒙古;阿拉善盟|101081213|内蒙古;石家庄|101090101|河北;保定|101090201|河北;张家口|101090301|河北;承德|101090402|河北;唐山|101090501|河北;廊坊|101090601|河北;沧州|101090701|河北;衡水|101090801|河北;邢台|101090901|河北;邯郸|101091001|河北;秦皇岛|101091101|河北;雄安新区|101091201|河北;太原|101100101|山西;大同|101100201|山西;阳泉|101100301|山西;晋中|101100401|山西;长治|101100501|山西;晋城|101100601|山西;临汾|101100701|山西;运城|101100801|山西;朔州|101100901|山西;忻州|101101001|山西;吕梁|101101100|山西;西安|101110101|陕西;咸阳|101110200|陕西;延安|101110300|陕西;榆林|101110401|陕西;渭南|101110501|陕西;商洛|101110601|陕西;安康|101110701|陕西;汉中|101110801|陕西;宝鸡|101110901|陕西;铜川|101111001|陕西;济南|101120101|山东;青岛|101120201|山东;淄博|101120301|山东;德州|101120401|山东;烟台|101120501|山东;潍坊|101120601|山东;济宁|101120701|山东;泰安|101120801|山东;临沂|101120901|山东;菏泽|101121001|山东;滨州|101121101|山东;东营|101121201|山东;威海|101121301|山东;枣庄|101121401|山东;日照|101121501|山东;聊城|101121701|山东;乌鲁木齐|101130101|新疆;克拉玛依|101130201|新疆;昌吉|101130401|新疆;吐鲁番|101130501|新疆;巴音郭楞|101130609|新疆;阿克苏|101130801|新疆;喀什地区|101130901|新疆;伊犁|101131012|新疆;塔城地区|101131101|新疆;哈密|101131201|新疆;和田地区|101131301|新疆;阿勒泰地区|101131401|新疆;克州|101131505|新疆;博尔塔拉|101131604|新疆;拉萨|101140101|西藏;日喀则|101140201|西藏;山南|101140301|西藏;林芝|101140401|西藏;昌都|101140501|西藏;那曲|101140601|西藏;阿里地区|101140701|西藏;西宁|101150101|青海;海东|101150207|青海;黄南|101150305|青海;海南|101150402|青海;果洛|101150507|青海;玉树州|101150601|青海;海西|101150702|青海;海北|101150804|青海;兰州|101160101|甘肃;定西|101160201|甘肃;平凉|101160301|甘肃;庆阳|101160401|甘肃;武威|101160501|甘肃;金昌|101160601|甘肃;张掖|101160701|甘肃;酒泉|101160801|甘肃;天水|101160901|甘肃;陇南|101161010|甘肃;临夏|101161101|甘肃;甘南|101161209|甘肃;白银|101161301|甘肃;嘉峪关|101161401|甘肃;银川|101170101|宁夏;石嘴山|101170201|宁夏;吴忠|101170301|宁夏;固原|101170401|宁夏;中卫|101170501|宁夏;郑州|101180101|河南;安阳|101180201|河南;新乡|101180301|河南;许昌|101180401|河南;平顶山|101180501|河南;信阳|101180601|河南;南阳|101180701|河南;开封|101180801|河南;洛阳|101180901|河南;商丘|101181001|河南;焦作|101181101|河南;鹤壁|101181201|河南;濮阳|101181301|河南;周口|101181401|河南;漯河|101181501|河南;驻马店|101181601|河南;三门峡|101181701|河南;南京|101190101|江苏;无锡|101190201|江苏;镇江|101190301|江苏;苏州|101190401|江苏;南通|101190501|江苏;扬州|101190601|江苏;盐城|101190701|江苏;徐州|101190801|江苏;淮安|101190901|江苏;连云港|101191001|江苏;常州|101191101|江苏;泰州|101191201|江苏;宿迁|101191301|江苏;武汉|101200101|湖北;襄阳|101200201|湖北;鄂州|101200301|湖北;孝感|101200401|湖北;黄冈|101200501|湖北;黄石|101200601|湖北;咸宁|101200701|湖北;荆州|101200801|湖北;宜昌|101200901|湖北;恩施州|101201001|湖北;十堰|101201101|湖北;随州|101201301|湖北;荆门|101201401|湖北;杭州|101210101|浙江;湖州|101210201|浙江;嘉兴|101210301|浙江;宁波|101210401|浙江;绍兴|101210507|浙江;台州|101210601|浙江;温州|101210701|浙江;丽水|101210801|浙江;金华|101210901|浙江;衢州|101211001|浙江;舟山|101211101|浙江;合肥|101220101|安徽;蚌埠|101220201|安徽;芜湖|101220301|安徽;淮南|101220401|安徽;马鞍山|101220501|安徽;安庆|101220601|安徽;宿州|101220701|安徽;阜阳|101220801|安徽;亳州|101220901|安徽;黄山|101221001|安徽;滁州|101221101|安徽;淮北|101221201|安徽;铜陵|101221301|安徽;宣城|101221401|安徽;六安|101221501|安徽;池州|101221701|安徽;福州|101230101|福建;厦门|101230201|福建;宁德|101230301|福建;莆田|101230401|福建;泉州|101230501|福建;漳州|101230601|福建;龙岩|101230701|福建;三明|101230801|福建;南平|101230901|福建;南昌|101240101|江西;九江|101240201|江西;上饶|101240301|江西;抚州|101240401|江西;宜春|101240501|江西;吉安|101240601|江西;赣州|101240701|江西;景德镇|101240801|江西;萍乡|101240901|江西;新余|101241001|江西;鹰潭|101241101|江西;长沙|101250101|湖南;湘潭|101250201|湖南;株洲|101250301|湖南;衡阳|101250401|湖南;郴州|101250501|湖南;常德|101250601|湖南;益阳|101250700|湖南;娄底|101250801|湖南;邵阳|101250901|湖南;岳阳|101251001|湖南;张家界|101251101|湖南;怀化|101251201|湖南;永州|101251401|湖南;湘西|101251509|湖南;贵阳|101260101|贵州;遵义|101260201|贵州;安顺|101260301|贵州;黔南|101260413|贵州;黔东南|101260506|贵州;铜仁|101260601|贵州;毕节|101260701|贵州;六盘水|101260803|贵州;黔西南|101260906|贵州;成都|101270101|四川;攀枝花|101270201|四川;自贡|101270301|四川;绵阳|101270401|四川;南充|101270501|四川;达州|101270601|四川;遂宁|101270701|四川;广安|101270801|四川;巴中|101270901|四川;泸州|101271001|四川;宜宾|101271101|四川;内江|101271201|四川;资阳|101271301|四川;乐山|101271401|四川;眉山|101271501|四川;凉山|101271601|四川;雅安|101271701|四川;甘孜|101271801|四川;阿坝|101271901|四川;德阳|101272001|四川;广元|101272101|四川;广州|101280101|广东;韶关|101280201|广东;惠州|101280301|广东;梅州|101280401|广东;汕头|101280501|广东;深圳|101280601|广东;珠海|101280701|广东;佛山|101280800|广东;肇庆|101280901|广东;湛江|101281001|广东;江门|101281101|广东;河源|101281201|广东;清远|101281301|广东;云浮|101281401|广东;潮州|101281501|广东;东莞|101281601|广东;中山|101281701|广东;阳江|101281801|广东;揭阳|101281901|广东;茂名|101282001|广东;汕尾|101282101|广东;昆明|101290101|云南;大理州|101290201|云南;红河|101290301|云南;曲靖|101290401|云南;保山|101290501|云南;文山州|101290601|云南;玉溪|101290701|云南;楚雄州|101290801|云南;普洱|101290901|云南;昭通|101291001|云南;临沧|101291101|云南;怒江|101291201|云南;迪庆|101291305|云南;丽江|101291401|云南;德宏|101291501|云南;西双版纳|101291602|云南;南宁|101300101|广西;崇左|101300201|广西;柳州|101300301|广西;来宾|101300401|广西;桂林|101300501|广西;梧州|101300601|广西;贺州|101300701|广西;贵港|101300801|广西;玉林|101300901|广西;百色|101301001|广西;钦州|101301101|广西;河池|101301201|广西;北海|101301301|广西;防城港|101301401|广西;海口|101310101|海南;三亚|101310201|海南;儋州|101310205|海南;三沙|101310301|海南;香港|101320101|香港;新界|101320103|香港;油尖旺|14606|香港;东区|1B6D3|香港;中西区|1D255|香港;屯门|1DC87|香港;大埔|275A5|香港;深水埗|28FE1|香港;九龙城|2BBD1|香港;葵青|2BC09|香港;元朗|39CD9|香港;湾仔|407DA|香港;西贡|4622E|香港;沙田|55E7E|香港;观塘|8A9CA|香港;北区|8E1C5|香港;离岛|9173|香港;黄大仙|D5EC3|香港;荃湾|DD9B5|香港;南区|E87DC|香港;澳门|101330101|澳门;氹仔岛|101330102|澳门;路环岛|101330103|澳门;路凼城|1444B|澳门;风顺堂区|2E3F1|澳门;嘉模堂区|4B3A7|澳门;望德堂区|5102|澳门;大堂区|7C47E|澳门;圣方济各堂区|83145|澳门;花王堂区|AEF10|澳门;花地玛堂区|D3B7A|澳门;钓鱼岛|101231001|台湾;台北|101340101|台湾;桃园|101340102|台湾;新竹|101340103|台湾;宜兰市|101340104|台湾;高雄|101340201|台湾;嘉义市|101340202|台湾;台南市|101340203|台湾;台东市|101340204|台湾;屏东市|101340205|台湾;台中市|101340401|台湾;苗栗市|101340402|台湾;彰化市|101340403|台湾;南投市|101340404|台湾;花莲市|101340405|台湾;来义乡|1064D|台湾;楠西区|1131A|台湾;冬山乡|125A0|台湾;后里区|12705|台湾;鸟松区|12AC3|台湾;林口区|1353E|台湾;太平区|14A62|台湾;秀林乡|14B6|台湾;关山镇|15F5F|台湾;中正区|15FC8|台湾;中西区|16946|台湾;朴子市|1851B|台湾;苓雅区|1860C|台湾;峨眉乡|198CA|台湾;莺歌区|1A131|台湾;丰滨乡|1AFB5|台湾;大安区|1BD97|台湾;卑南乡|1C2F9|台湾;清水区|1C370|台湾;三峽区|1CB96|台湾;茂林区|1D33|台湾;高树乡|1EA6F|台湾;九如乡|1ECA0|台湾;仁爱乡|1F7E2|台湾;深坑区|1F906|台湾;阿莲区|1FCAC|台湾;乌日区|22E50|台湾;东势乡|2008A|台湾;伸港乡|2045E|台湾;士林区|215EB|台湾;龙井区|232B2|台湾;五结乡|25B67|台湾;埔心乡|27297|台湾;大肚区|274A6|台湾;田寮区|2787E|台湾;水林乡|2897F|台湾;芦竹区|28C50|台湾;竹崎乡|2A0EA|台湾;平镇区|2A17C|台湾;梓官区|2A7A9|台湾;南化区|2ADEC|台湾;官田区|2B8F1|台湾;牡丹乡|2BD74|台湾;土城区|2BF61|台湾;暖暖区|2CA40|台湾;新埔镇|2CEDF|台湾;口湖乡|2DD33|台湾;关庙区|2DF8D|台湾;长滨乡|2E301|台湾;埤头乡|2F677|台湾;香山区|300A2|台湾;仁德区|30712|台湾;苏澳镇|30EB5|台湾;海端乡|33D54|台湾;北投区|34272|台湾;阿里山乡|34B85|台湾;泰安乡|3561E|台湾;长治乡|35EA|台湾;中和区|36039|台湾;集集镇|36375|台湾;大村乡|37981|台湾;楠梓区|394EA|台湾;文山区|3981F|台湾;瑞芳区|39A9E|台湾;满州乡|3A2F4|台湾;安平区|3A428|台湾;大里区|3B30D|台湾;中埔乡|3B81C|台湾;北屯区|3BD59|台湾;六脚乡|3D16B|台湾;仑背乡|3EC6B|台湾;二水乡|3ED2D|台湾;七股区|3FC8E|台湾;八德区|4297D|台湾;溪口乡|42F72|台湾;车城乡|42F75|台湾;里港乡|43E4E|台湾;西湖乡|441DA|台湾;桃源区|442FB|台湾;梅山乡|44BA1|台湾;潭子区|44BC2|台湾;狮潭乡|4515E|台湾;大城乡|46843|台湾;崁顶乡|4786|台湾;安南区|485D2|台湾;永康区|48D19|台湾;复兴区|490B9|台湾;古坑乡|4A86F|台湾;七堵区|4A9E4|台湾;西湖乡|4B6DC|台湾;和美镇|4CA1B|台湾;美浓区|4D0CD|台湾;中山区|4D45B|台湾;名间乡|4D55F|台湾;佳里区|4D572|台湾;杨梅区|4E71A|台湾;番路乡|4E999|台湾;太保市|4EB49|台湾;南区|4EE12|台湾;樹林区|4F7B8|台湾;员山乡|4FB12|台湾;东山区|4FC38|台湾;土库镇|5029C|台湾;麦寮乡|503D8|台湾;八里区|50460|台湾;永靖乡|50886|台湾;礁溪乡|52116|台湾;永安区|522A8|台湾;金峰乡|528C1|台湾;龟山区|5327F|台湾;国姓乡|53937|台湾;绿岛乡|53C0D|台湾;大湖乡|545BD|台湾;田中镇|55AF3|台湾;芳苑乡|56FB2|台湾;金山区|5A624|台湾;布袋镇|5B01A|台湾;燕巢区|5B14E|台湾;柳营区|5D1AC|台湾;竹田乡|5DCD0|台湾;平渓区|5DE8A|台湾;莿桐乡|5F054|台湾;斗南镇|5F767|台湾;信义区|5FA11|台湾;太麻里乡|5FFC8|台湾;玉井区|601C9|台湾;新丰乡|60301|台湾;义竹乡|607B7|台湾;路竹区|60C6E|台湾;池上乡|6149A|台湾;万里区|618B3|台湾;观音区|62622|台湾;石门区|62C94|台湾;将军区|640E|台湾;大埔乡|64722|台湾;前金区|64DF4|台湾;西港区|65449|台湾;南区|65B59|台湾;狮子乡|6781C|台湾;林园区|685A4|台湾;吉安乡|687D9|台湾;大寮区|69041|台湾;旗山区|6946C|台湾;瑞穗乡|69C7D|台湾;汐止区|6A009|台湾;潮州镇|6C288|台湾;佳冬乡|6D813|台湾;西区|6DB7C|台湾;三湾乡|6F1CA|台湾;盐水区|6F8E8|台湾;新港乡|707A5|台湾;南澳乡|71A41|台湾;坪林区|72D3F|台湾;横山乡|7412D|台湾;南港区|74604|台湾;杉林区|74A65|台湾;中区|75272|台湾;龙崎区|7527B|台湾;马公市|753A2|台湾;万荣乡|77487|台湾;恒春镇|77836|台湾;大安区|77922|台湾;大甲区|77B7|台湾;大树区|786AD|台湾;埔里镇|78C5D|台湾;新北市|79754|台湾;头城镇|7AC15|台湾;旗津区|7AC37|台湾;东区|7AD1B|台湾;白河区|7B4D7|台湾;卓兰镇|7CD4B|台湾;新城乡|7CE62|台湾;宝山乡|70E52|台湾;麻豆区|7E91B|台湾;前镇区|7EF65|台湾;湖内区|7F2B8|台湾;石冈区|7F7CD|台湾;学甲区|81AE3|台湾;枋山乡|82644|台湾;万華区|8296C|台湾;草屯镇|83F45|台湾;埔盐乡|849C0|台湾;尖石乡|8647F|台湾;秀水乡|86861|台湾;二林镇|86AEC|台湾;北斗镇|87DA|台湾;斗六市|884E|台湾;西屯区|88DAC|台湾;盐埕区|89FCB|台湾;大园区|8A667|台湾;五股区|8B37C|台湾;林内乡|8C73A|台湾;竹塘乡|8D63C|台湾;冈山区|8E183|台湾;万丹乡|8E9AA|台湾;三地门乡|8ECB0|台湾;竹东镇|96E31|台湾;公馆乡|92813|台湾;南州乡|93143|台湾;内门区|9346C|台湾;新社区|95178|台湾;苑里镇|954F5|台湾;新营区|955CC|台湾;三重区|95B3C|台湾;达仁乡|96121|台湾;雾台乡|963DA|台湾;鹿野乡|97619|台湾;后龙镇|97B1A|台湾;线西乡|97F69|台湾;大埤乡|98DE7|台湾;大内区|98EF7|台湾;台西乡|9AB11|台湾;北区|9B388|台湾;乌来区|9B92A|台湾;望安乡|9C6B3|台湾;永和区|9D3E5|台湾;山上区|9DAAA|台湾;溪州乡|9DD7F|台湾;新化区|9E358|台湾;芬园乡|9E5DD|台湾;社头乡|9F928|台湾;松山区|A033A|台湾;湖西乡|A06E6|台湾;安定区|A3EFD|台湾;通霄镇|A503E|台湾;六龟区|A7AA7|台湾;雾峰区|A7B14|台湾;田尾乡|A9903|台湾;兰屿乡|A9A12|台湾;新园乡|A9C2C|台湾;基隆市|A9E1|台湾;麟洛乡|AACD9|台湾;弥陀区|AACF5|台湾;鹿港镇|AD033|台湾;员林镇|AD179|台湾;万峦乡|AD515|台湾;壮围乡|AE2EB|台湾;凤山区|AEA05|台湾;后壁区|AF42E|台湾;造桥乡|AF6DE|台湾;东势区|B1954|台湾;林边乡|B1B72|台湾;大社区|B25DD|台湾;沙鹿区|B263B|台湾;貢寮区|B28D3|台湾;新市区|B345C|台湾;四湖乡|B40F3|台湾;大同区|B4131|台湾;元长乡|B4967|台湾;东港镇|B509A|台湾;三义乡|B57C7|台湾;卓溪乡|B75BB|台湾;寿丰乡|B7A02|台湾;竹山镇|B7B31|台湾;信义乡|B82B7|台湾;枋寮乡|B8DEC|台湾;新兴区|B93FB|台湾;大雅区|B99C9|台湾;春日乡|BA103|台湾;西螺镇|BAD4D|台湾;光复乡|BB61B|台湾;梧栖区|BBB19|台湾;褒忠乡|BBE60|台湾;泰山区|BCAE1|台湾;白沙乡|BCF10|台湾;南屯区|BD890|台湾;三芝区|BDA5B|台湾;大武乡|BE9AC|台湾;小港区|BEA9E|台湾;水里乡|BF01C|台湾;淡水区|BFA38|台湾;北门区|BFFEA|台湾;玛家乡|C1078|台湾;竹北市|C30C|台湾;中山区|C346|台湾;内埔乡|C4AF1|台湾;龙潭区|C4BED|台湾;外埔区|C532F|台湾;罗东镇|C5445|台湾;水上乡|C5473|台湾;五峰乡|C87FF|台湾;头份镇|CA3|台湾;凤林镇|CA83B|台湾;三民区|CAE8D|台湾;六甲区|CB526|台湾;善化区|CB5C1|台湾;左营区|CD807|台湾;北埔乡|CF68C|台湾;东势乡|CFCC4|台湾;民雄乡|D05D7|台湾;西屿乡|D0809|台湾;石碇区|D0B00|台湾;信义区|D13AC|台湾;竹南镇|D257A|台湾;七美乡|D2EBD|台湾;安乐区|D3A0D|台湾;中正区|D3A1D|台湾;鹿草乡|D4650|台湾;内湖区|D54D9|台湾;中坜区|D6C2D|台湾;鹿谷乡|D7481|台湾;东河乡|D7D8E|台湾;甲仙区|D8B7D|台湾;蘆洲区|D9469|台湾;板桥区|D96E9|台湾;大林镇|D9B1A|台湾;芎林乡|DA4C5|台湾;铜锣乡|DACF8|台湾;中寮乡|DB374|台湾;二仑乡|DBA28|台湾;北区|DCECC|台湾;南庄乡|DE049|台湾;湖口乡|DE3B7|台湾;成功镇|DE8A4|台湾;东区|DED29|台湾;泰武乡|DFB95|台湾;头屋乡|E00DD|台湾;那玛夏区|E3120|台湾;三星乡|E427E|台湾;下营区|E4AB6|台湾;左镇区|E5098|台湾;虎尾镇|E5452|台湾;花坛乡|E6107|台湾;福兴乡|E8B22|台湾;丰原区|E8BA8|台湾;新埤乡|E9D19|台湾;茄萣区|E9D4F|台湾;新庄区|E9DC2|台湾;富里乡|EA346|台湾;鱼池乡|EB721|台湾;大同乡|EBC37|台湾;玉里镇|EBCEC|台湾;琉球乡|EC5FB|台湾;鼓山区|ED37A|台湾;大溪区|ED785|台湾;仁武区|EDE8C|台湾;延平乡|EE096|台湾;关西镇|EE328|台湾;和平区|EED7A|台湾;新店区|EFBAC|台湾;归仁区|F0DE1|台湾;仁爱区|F116A|台湾;桥头区|F178D|台湾;双渓区|F21E4|台湾;神冈区|F2FA2|台湾;北港镇|F35CF|台湾;盐埔乡|F4F1|台湾;新屋区|F69B|台湾`,
+
+  _parsedCities: null,
+  _getCities() {
+    if (this._parsedCities) return this._parsedCities;
+    this._parsedCities = this.CITY_DATA.split(';').map(entry => {
+      const [name, id, prov] = entry.split('|');
+      return { name, id, prov };
+    });
+    return this._parsedCities;
+  },
+
+  async init() {
+    this.bindEvents();
+    this.renderFavorites();
+    // Key 已内置，直接启动
+    await this.startWithKey();
+  },
+
+  showSetupOverlay() {
+    // Key 已内置，不再需要此功能。如果用户想换 Key，可在此配置
+    document.getElementById('setup-overlay').classList.remove('hidden');
+    document.getElementById('btn-save-key').addEventListener('click', async () => {
+      const key = document.getElementById('api-key-input').value.trim();
+      if (!key) { alert('请输入 API Key'); return; }
+      const btn = document.getElementById('btn-save-key');
+      btn.textContent = '验证中…';
+      btn.disabled = true;
+      const ok = await this.testApiKey(key);
+      if (ok) {
+        CONFIG.KEY = key;
+        localStorage.setItem('pw_api_key', key);
+        document.getElementById('setup-overlay').classList.add('hidden');
+        await this.startWithKey();
+      } else {
+        btn.textContent = 'Key 无效，重试';
+        btn.disabled = false;
+        btn.classList.add('bg-red-500');
+        setTimeout(() => { btn.textContent = '开始使用'; btn.classList.remove('bg-red-500'); }, 2000);
+      }
+    });
+  },
+
+  async testApiKey(key) {
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/weather/now?location=101010100&key=${key}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      return data.code === '200';
+    } catch {
+      return false;
+    }
+  },
+
+  async startWithKey() {
+    const lastCity = Cache.get('last_city', Infinity);
+    if (lastCity) {
+      await this.loadCity(lastCity);
+    } else {
+      await this.useGPS();
+    }
+  },
+
+  bindEvents() {
+    document.getElementById('city-trigger').addEventListener('click', () => this.openCitySheet());
+    document.getElementById('refresh-btn').addEventListener('click', () => this.refresh());
+    document.getElementById('btn-gps').addEventListener('click', () => this.useGPS());
+    document.getElementById('city-search-input').addEventListener('input', e => this.handleSearch(e.target.value));
+    document.getElementById('btn-gps').addEventListener('touchstart', function() { this.classList.add('bg-amber-200'); });
+    document.getElementById('btn-gps').addEventListener('touchend', function() { this.classList.remove('bg-amber-200'); });
+    document.getElementById('settings-btn').addEventListener('click', () => this.showSetupOverlay());
+  },
+
+  async loadCity(city) {
+    this.currentCity = city;
+    Cache.set('last_city', city, Infinity);
+    Geo.addFavoriteCity(city);
+    document.getElementById('city-name').textContent = city.name;
+    await this.fetchAllData(city.id);
+    this.closeCitySheet();
+    this.renderFavorites();
+  },
+
+  async fetchAllData(locationId) {
+    showSkeletons();
+    this.hideStaleBanner();
+    // 逐个请求，任一失败不阻塞其他
+    const results = { weatherNow: null, weather24h: null, sunData: null, airNow: null };
+    const errors = [];
+    const tasks = [
+      API.getWeatherNow(locationId).then(d => results.weatherNow = d).catch(e => errors.push('天气:'+e.message)),
+      API.getWeather24h(locationId).then(d => results.weather24h = d).catch(e => errors.push('逐小时:'+e.message)),
+      API.getSunTimes(locationId).then(d => results.sunData = d).catch(e => errors.push('日出日落:'+e.message)),
+      API.getAirNow(locationId).then(d => results.airNow = d).catch(e => {}), // 空气质量可选
+    ];
+    await Promise.allSettled(tasks);
+    // 至少要有天气数据才能渲染
+    if (!results.weatherNow) {
+      if (this.currentData) {
+        this.updateUI(this.currentData.weatherNow, this.currentData.weather24h, this.currentData.sunData, this.currentData.airNow);
+        this.showStaleBanner();
+      } else {
+        this.clearSkeletonsWithHint('数据加载失败：' + (errors.join('; ') || '网络异常'));
+        if (errors.length) this.showError(errors[0]);
+      }
+      return;
+    }
+    this.currentData = results;
+    this.updateUI(results.weatherNow, results.weather24h, results.sunData, results.airNow);
+    if (errors.length) this.showError('部分数据加载失败：' + errors.join('; '));
+  },
+
+  updateUI(weatherNow, weather24h, sunData, airNow) {
+    renderWeatherCard(weatherNow);
+
+    const visRaw = parseFloat(weatherNow.vis);
+    const visibilityKm = (!isNaN(visRaw) && visRaw > 0) ? visRaw
+      : (airNow && airNow.pm2p5 ? Math.max(0.5, 30 - parseFloat(airNow.pm2p5) * 0.1) : 10);
+
+    renderLightCard(sunData || {});
+    renderVisibilityCard(Math.round(visibilityKm));
+
+    const hourlyData = weather24h || [];
+    const sunriseProb = CalcEngine.getGlowProbability(hourlyData, true, weatherNow);
+    const sunsetProb = CalcEngine.getGlowProbability(hourlyData, false, weatherNow);
+    renderGlowCard(sunriseProb, sunsetProb);
+
+    const ctx = this.buildContext(weatherNow, visibilityKm, sunriseProb, sunsetProb, sunData);
+    const recs = RecommendEngine.getRecommendations(ctx);
+    renderRecommendCard(recs);
+
+    document.getElementById('weather-update-time').textContent =
+      `📍 ${this.currentCity.name} · 更新于 ${new Date().toLocaleTimeString('zh-CN')}`;
+  },
+
+  buildContext(weatherNow, visibilityKm, sunriseProb, sunsetProb, sunData) {
+    const icon = weatherNow.icon || '100';
+    const now = new Date();
+    const hour = now.getHours();
+    return {
+      sunsetGlow: sunsetProb,
+      sunriseGlow: sunriseProb,
+      visibilityScore: Math.min(100, visibilityKm * 5),
+      visibilityKm,
+      isClear: icon === '100' || icon === '101',
+      isOvercast: icon === '104',
+      cloudCover: parseInt(weatherNow.cloud) || 50,
+      windSpeed: parseInt(weatherNow.windSpeed) || 0,
+      humidity: parseInt(weatherNow.humidity) || 50,
+      isMorning: hour >= 5 && hour <= 9,
+      isGoldenHour: false,
+      rainRecent: (weatherNow.text || '').includes('雨')
+    };
+  },
+
+  async handleSearch(query) {
+    clearTimeout(this.searchTimer);
+    if (query.length < 1) {
+      document.getElementById('search-results').classList.add('hidden');
+      return;
+    }
+    // 本地模糊匹配内置城市列表
+    const q = query.trim();
+    const matches = App._getCities().filter(c =>
+      c.name.includes(q) || c.prov.includes(q)
+    ).slice(0, 20);
+    if (matches.length > 0) {
+      this.renderSearchResults(matches.map(c => ({ id: c.id, name: c.name, adm1: c.prov })));
+    } else {
+      // 不在内置列表，尝试直接用城市名查天气
+      document.getElementById('search-results').classList.remove('hidden');
+      document.getElementById('search-results-list').innerHTML =
+        '<div class="text-gray-400 text-sm p-3">未找到匹配城市，请尝试其他关键词</div>';
+    }
+  },
+
+  renderSearchResults(cities) {
+    const section = document.getElementById('search-results');
+    const list = document.getElementById('search-results-list');
+    if (!cities.length) {
+      list.innerHTML = '<div class="text-gray-400 text-sm p-3">未找到匹配城市</div>';
+    } else {
+      list.innerHTML = cities.map(c => `
+        <div class="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl cursor-pointer touch-target"
+             onclick="App.loadCity({id:'${c.id}',name:'${c.name}',adm1:'${c.adm1||''}'})">
+          <i class="fa fa-map-marker text-gray-400"></i>
+          <span class="flex-1 font-medium text-gray-700">${c.name}</span>
+          <span class="text-xs text-gray-400">${c.adm1||''} ${c.adm2||''}</span>
+        </div>
+      `).join('');
+    }
+    section.classList.remove('hidden');
+  },
+
+  renderFavorites() {
+    const cities = Geo.getFavoriteCities();
+    const list = document.getElementById('favorites-list');
+    const section = document.getElementById('favorites-section');
+    if (!cities.length) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    list.innerHTML = cities.map(c => `
+      <div class="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl cursor-pointer touch-target"
+           onclick="App.loadCity({id:'${c.id}',name:'${c.name}',adm1:'${c.adm1||''}'})">
+        <i class="fa fa-map-marker text-golden"></i>
+        <span class="flex-1 font-medium text-gray-700">${c.name}</span>
+        <span class="text-xs text-gray-400 mr-2">${c.adm1||''}</span>
+        <button class="text-gray-300 hover:text-red-400 p-1 touch-target" onclick="event.stopPropagation();Geo.removeFavoriteCity('${c.id}')">
+          <i class="fa fa-times"></i>
+        </button>
+      </div>
+    `).join('');
+  },
+
+  openCitySheet() {
+    document.getElementById('city-sheet').classList.add('open');
+    document.getElementById('sheet-backdrop').classList.add('open');
+    document.getElementById('city-search-input').value = '';
+    document.getElementById('search-results').classList.add('hidden');
+    this.renderFavorites();
+  },
+
+  closeCitySheet() {
+    document.getElementById('city-sheet').classList.remove('open');
+    document.getElementById('sheet-backdrop').classList.remove('open');
+  },
+
+  async useGPS() {
+    const status = document.getElementById('gps-status');
+    status.textContent = '定位中…';
+    try {
+      const pos = await Geo.getCurrentPosition();
+      const city = await Geo.getCityByCoords(pos.lat, pos.lon);
+      status.textContent = '';
+      await this.loadCity(city);
+    } catch (err) {
+      status.textContent = '定位失败，请手动搜索';
+      this.clearSkeletonsWithHint('无法自动定位，请点击上方城市栏搜索');
+      setTimeout(() => { status.textContent = ''; }, 5000);
+    }
+  },
+
+  clearSkeletonsWithHint(hint) {
+    const cards = ['card-weather','card-light','card-visibility','card-sunset-glow','card-recommend'];
+    cards.forEach((id, i) => {
+      const card = document.getElementById(id);
+      if (i === 0) {
+        card.innerHTML = `<div class="text-center py-12 text-gray-400"><i class="fa fa-map-marker text-4xl mb-3 block"></i><p class="text-sm">${hint}</p><button class="mt-3 bg-golden text-white px-5 py-2 rounded-full text-sm font-bold" onclick="App.openCitySheet()">手动选择城市</button></div>`;
+      } else {
+        card.innerHTML = '';
+      }
+    });
+  },
+
+  async refresh() {
+    if (this.currentCity) {
+      const btn = document.getElementById('refresh-btn');
+      btn.style.transform = 'rotate(360deg)';
+      btn.style.transition = 'transform 0.6s ease';
+      setTimeout(() => { btn.style.transform = ''; btn.style.transition = ''; }, 600);
+      await this.fetchAllData(this.currentCity.id);
+    }
+  },
+
+  showStaleBanner() {
+    const banner = document.getElementById('stale-banner');
+    banner.classList.remove('hidden');
+    banner.innerHTML = '<i class="fa fa-exclamation-triangle"></i> 无法连接网络，显示的是缓存数据';
+    setTimeout(() => this.hideStaleBanner(), 5000);
+  },
+
+  hideStaleBanner() {
+    document.getElementById('stale-banner').classList.add('hidden');
+  },
+
+  showError(msg) {
+    const banner = document.getElementById('stale-banner');
+    banner.classList.remove('hidden');
+    banner.className = 'fixed top-0 inset-x-0 z-50 bg-red-100 text-red-800 text-xs text-center py-1.5';
+    banner.innerHTML = `<i class="fa fa-exclamation-circle"></i> ${msg}`;
+    setTimeout(() => { banner.classList.add('hidden'); banner.className = 'hidden fixed top-0 inset-x-0 z-50 bg-yellow-100 text-yellow-800 text-xs text-center py-1.5'; }, 4000);
+  },
+
+};
+
+// 启动
+document.addEventListener('DOMContentLoaded', () => App.init());
+</script>
+</body>
+</html>
