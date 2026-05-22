@@ -408,13 +408,13 @@ tailwind.config = {
   </div>
 
   <div id="city-results" class="px-5 pb-6">
+    <div id="search-results" class="hidden mb-3">
+      <div class="text-xs text-slate-500 mb-2">搜索结果</div>
+      <div id="search-results-list" class="space-y-1"></div>
+    </div>
     <div id="favorites-section" class="mb-3">
       <div class="text-xs text-slate-500 mb-2">📌 已收藏城市</div>
       <div id="favorites-list" class="space-y-1"></div>
-    </div>
-    <div id="search-results" class="hidden">
-      <div class="text-xs text-slate-500 mb-2">搜索结果</div>
-      <div id="search-results-list" class="space-y-1"></div>
     </div>
   </div>
 </div>
@@ -1224,7 +1224,7 @@ function renderHourlyItems() {
 function renderPhotoGauge(photoIndex, sunData) {
   const card = document.getElementById('card-gauge');
   card.className = 'relative z-10 text-center py-8 card-enter';
-  const detailText = photoIndex.scores.map(s => `${s.name}:${Math.round(s.score)}分`).join('，');
+  const detailText = `综合摄影指数 ${photoIndex.total}/100\n\n8维度加权评分模型：\n${photoIndex.scores.map(s => `${s.name}：${Math.round(s.score)}分（权重${Math.round(s.weight*100)}%）`).join('\n')}\n\n总分 = 各维度得分 × 权重 之和\n点击各维度胶囊可查看单项说明`;
   const tipMsg = photoIndex.improvement || `摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`;
   const scoreAngle = photoIndex.total * 1.8; // 0-100 → 0-180deg
 
@@ -1242,7 +1242,7 @@ function renderPhotoGauge(photoIndex, sunData) {
   card.innerHTML = `
     <div class="text-xs text-slate-500 uppercase tracking-widest mb-3">综合摄影指数</div>
     <div class="aperture-ring mb-1" style="--score-angle:${scoreAngle}deg"></div>
-    <div class="gauge-hero-score cursor-pointer select-none -mt-12 mb-2" data-gauge-detail="${detailText}">${photoIndex.total}</div>
+    <div class="gauge-hero-score cursor-pointer select-none -mt-12 mb-2 active:scale-90 transition-transform" data-gauge-detail="${detailText}">${photoIndex.total}</div>
     <div class="inline-flex px-5 py-1.5 rounded-full text-sm font-bold cursor-pointer hover:opacity-80 transition backdrop-blur-sm"
          style="background:${photoIndex.color}18;color:${photoIndex.color};border:1px solid ${photoIndex.color}30"
          data-gauge-tip="${tipMsg.replace(/"/g,'&quot;')}">
@@ -1335,9 +1335,11 @@ function renderLightTimeline(sunData) {
   card.className = 'photographer-card card-accent-top blue card-enter collapsible-section';
   card.innerHTML = `
     <div class="collapsible-header mb-3">
-      <i class="fa fa-clock-o text-blue-hour text-xl"></i>
-      <span class="font-bold text-slate-100 text-lg flex-1">光影时间线</span>
-      <i class="fa fa-chevron-up collapsible-chevron"></i>
+      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0">
+        <i class="fa fa-clock-o text-blue-hour text-xl flex-shrink-0"></i>
+        <span class="font-bold text-slate-100 text-lg">光影时间线</span>
+      </div>
+      <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0"></i>
     </div>
     <div class="collapsible-body">
     <div class="relative pt-2 pb-8 mb-4">
@@ -1377,12 +1379,14 @@ function renderRecommendCard(recommendations) {
 
   card.innerHTML = `
     <div class="collapsible-header mb-3">
-      <i class="fa fa-camera text-emerald-400 text-xl"></i>
-      <span class="font-bold text-slate-100 text-lg flex-1">今日适合拍摄 <span class="text-xs text-slate-600 font-normal">/100</span></span>
-      <button id="btn-all-themes" class="text-xs text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full hover:bg-emerald-400/20 transition touch-target" onclick="event.stopPropagation()">
+      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0">
+        <i class="fa fa-camera text-emerald-400 text-xl flex-shrink-0"></i>
+        <span class="font-bold text-slate-100 text-lg truncate">今日适合拍摄 <span class="text-xs text-slate-600 font-normal">/100</span></span>
+      </div>
+      <button id="btn-all-themes" class="text-xs text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full hover:bg-emerald-400/20 transition touch-target flex-shrink-0 mr-2" onclick="event.stopPropagation()">
         查看全部 <i class="fa fa-chevron-down"></i>
       </button>
-      <i class="fa fa-chevron-up collapsible-chevron ml-1"></i>
+      <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0"></i>
     </div>
     <div class="collapsible-body">
     <div class="bg-gradient-to-br from-emerald-900/30 to-teal-900/20 rounded-2xl p-5 text-center mb-3 border border-emerald-500/10">
@@ -1488,7 +1492,7 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
     const idxTextColor = idx.total >= 75 ? 'text-emerald-400' : idx.total >= 50 ? 'text-golden' : 'text-slate-400';
     const idxLabel = idx.total >= 75 ? '适宜' : idx.total >= 50 ? '一般' : '不宜';
     const idxBg = idx.total >= 75 ? 'bg-emerald-400/20' : idx.total >= 50 ? 'bg-amber-400/20' : 'bg-slate-700/30';
-    return `<div class="text-center p-3 rounded-2xl ${i===0 ? idxColor + ' ring-1' : 'bg-slate-800/50'}">
+    return `<div class="text-center p-3 rounded-2xl ${i===0 ? idxColor + ' ring-2' : 'bg-slate-800/50'}">
       <div class="text-xs text-slate-500 mb-1">${dayLabels[i]}</div>
       <div class="text-xl mb-1">${getWeatherEmoji(icon)}</div>
       <div class="font-bold text-slate-200 text-sm">${d.tempMax}°/${d.tempMin}°</div>
@@ -1501,9 +1505,11 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
 
   card.innerHTML = `
     <div class="collapsible-header mb-3">
-      <i class="fa fa-calendar text-blue-hour text-xl"></i>
-      <span class="font-bold text-slate-100 text-lg flex-1">未来天气 <span class="text-xs text-slate-600 font-normal">摄影指数 /100</span></span>
-      <i class="fa fa-chevron-up collapsible-chevron"></i>
+      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0">
+        <i class="fa fa-calendar text-blue-hour text-xl flex-shrink-0"></i>
+        <span class="font-bold text-slate-100 text-lg">未来天气 <span class="text-xs text-slate-600 font-normal">摄影指数 /100</span></span>
+      </div>
+      <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0"></i>
     </div>
     <div class="collapsible-body">
       <div class="grid grid-cols-3 gap-2">${items}</div>
@@ -1543,18 +1549,19 @@ function renderBestWeek(dailyData, weatherNow, moonInfo) {
     return { ...idx, day: dayLabels[i], icon: d.iconDay || '100', tempMax: d.tempMax, tempMin: d.tempMin, text: d.textDay || '' };
   });
 
-  const best = scored.reduce((a, b) => a.total > b.total ? a : b);
-  const bestIdx = scored.indexOf(best);
+  const bestTotal = Math.max(...scored.map(s => s.total));
+  const bestIndices = scored.reduce((arr, s, i) => { if (s.total === bestTotal) arr.push(i); return arr; }, []);
+  const bestDayText = bestIndices.map(i => scored[i].day).join(' / ');
 
   card.innerHTML = `
     <div class="flex items-center gap-2 mb-3">
       <i class="fa fa-calendar-check-o text-golden text-lg"></i>
       <span class="font-bold text-slate-100">最佳拍摄日</span>
-      <span class="text-xs text-golden font-bold bg-golden/10 px-2 py-0.5 rounded-full ml-auto">${best.day} ${best.total}分</span>
+      <span class="text-xs text-golden font-bold bg-golden/10 px-2 py-0.5 rounded-full ml-auto">${bestDayText} ${bestTotal}分</span>
     </div>
     <div class="grid grid-cols-3 gap-2">
       ${scored.map((s, i) => `
-        <div class="text-center p-3 rounded-xl ${i === bestIdx ? 'bg-golden/10 ring-1 ring-golden/40' : 'bg-slate-800/30'}">
+        <div class="text-center p-3 rounded-xl ${bestIndices.includes(i) ? 'bg-golden/10 ring-2 ring-golden/40' : 'bg-slate-800/30'}">
           <div class="text-xs text-slate-500">${s.day}</div>
           <div class="text-xl my-1">${getWeatherEmoji(s.icon)}</div>
           <div class="text-xs text-slate-400">${s.tempMax}°/${s.tempMin}°</div>
@@ -1697,9 +1704,9 @@ const App = {
   initCollapsibleSections() {
     // 事件委托：点击折叠头部切换展开/折叠
     document.getElementById('main-content').addEventListener('click', (e) => {
-      const header = e.target.closest('.collapsible-header');
-      if (!header) return;
-      const section = header.closest('.collapsible-section');
+      const trigger = e.target.closest('.collapsible-trigger');
+      if (!trigger) return;
+      const section = trigger.closest('.collapsible-section');
       if (!section) return;
       section.classList.toggle('collapsed');
     });
@@ -1787,7 +1794,6 @@ const App = {
   async loadCity(city) {
     this.currentCity = city;
     Cache.set('last_city', city, Infinity);
-    Geo.addFavoriteCity(city);
     document.getElementById('city-name').textContent = city.name;
     await this.fetchAllData(city.id);
     this.closeCitySheet();
@@ -1958,11 +1964,15 @@ const App = {
       list.innerHTML = '<div class="text-slate-500 text-sm p-3">未找到匹配城市</div>';
     } else {
       list.innerHTML = cities.map(c => `
-        <div class="flex items-center gap-3 p-3 hover:bg-slate-700/50 rounded-xl cursor-pointer touch-target"
-             onclick="App.loadCity({id:'${c.id}',name:'${c.name}',adm1:'${c.adm1||''}'})">
-          <i class="fa fa-map-marker text-slate-500"></i>
-          <span class="flex-1 font-medium text-slate-200">${c.name}</span>
-          <span class="text-xs text-slate-500">${c.adm1||''}</span>
+        <div class="flex items-center gap-3 p-3 hover:bg-slate-700/50 rounded-xl cursor-pointer touch-target group">
+          <div class="flex-1 flex items-center gap-3" onclick="App.loadCity({id:'${c.id}',name:'${c.name}',adm1:'${c.adm1||''}'})">
+            <i class="fa fa-map-marker text-slate-500"></i>
+            <span class="font-medium text-slate-200">${c.name}</span>
+            <span class="text-xs text-slate-500">${c.adm1||''}</span>
+          </div>
+          <button class="text-slate-600 hover:text-golden p-1.5 touch-target transition-colors" onclick="event.stopPropagation();Geo.addFavoriteCity({id:'${c.id}',name:'${c.name}',adm1:'${c.adm1||''}'});App.renderFavorites();App.showToast('已收藏 ${c.name}')" title="收藏">
+            <i class="fa fa-star-o"></i>
+          </button>
         </div>
       `).join('');
     }
