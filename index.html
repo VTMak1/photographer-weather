@@ -110,30 +110,38 @@ tailwind.config = {
 <!-- 主内容区 -->
 <main id="main-content" class="pt-16 pb-8 px-4 max-w-lg mx-auto space-y-4">
 
-  <!-- 天气概览卡片 -->
+  <!-- 天气概览 Hero -->
   <section id="card-weather" class="photographer-card card-golden card-enter" style="animation-delay:0ms">
     <div class="skeleton h-48 rounded-xl"></div>
   </section>
 
-  <!-- 光影时间卡片 -->
-  <section id="card-light" class="photographer-card card-blue card-enter" style="animation-delay:80ms">
-    <div class="skeleton h-40 rounded-xl"></div>
+  <!-- 综合摄影指数仪表盘 -->
+  <section id="card-gauge" class="photographer-card card-golden card-enter" style="animation-delay:80ms">
+    <div class="skeleton h-48 rounded-xl"></div>
   </section>
 
-  <!-- 能见度卡片 -->
-  <section id="card-visibility" class="photographer-card card-purple card-enter" style="animation-delay:160ms">
-    <div class="skeleton h-36 rounded-xl"></div>
-  </section>
-
-  <!-- 朝霞晚霞概率卡片 -->
-  <section id="card-sunset-glow" class="photographer-card card-purple card-enter" style="animation-delay:240ms">
-    <div class="skeleton h-36 rounded-xl"></div>
+  <!-- 6格指标网格 -->
+  <section id="card-metrics" class="photographer-card card-purple card-enter" style="animation-delay:160ms">
+    <div class="skeleton h-56 rounded-xl"></div>
   </section>
 
   <!-- 拍摄主题推荐卡片 -->
-  <section id="card-recommend" class="photographer-card card-green card-enter" style="animation-delay:320ms">
+  <section id="card-recommend" class="photographer-card card-green card-enter" style="animation-delay:240ms">
     <div class="skeleton h-44 rounded-xl"></div>
   </section>
+
+  <!-- 光影时间线 -->
+  <section id="card-light" class="photographer-card card-blue card-enter" style="animation-delay:320ms">
+    <div class="skeleton h-40 rounded-xl"></div>
+  </section>
+
+  <!-- 未来三天 -->
+  <section id="card-future" class="photographer-card card-purple card-enter" style="animation-delay:360ms">
+    <div class="skeleton h-40 rounded-xl"></div>
+  </section>
+
+  <!-- 天气预警 -->
+  <section id="card-warning" class="hidden"></section>
 
 </main>
 
@@ -311,6 +319,57 @@ const API = {
     } catch (e) {
       const stale = Cache.get(cacheKey, Infinity);
       if (stale) return stale;
+      return null;
+    }
+  },
+
+  async getMoonPhase(locationId, date) {
+    const d = date ? new Date(date) : new Date();
+    const dateStr = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+    const cacheKey = `moon_${locationId}_${dateStr}`;
+    const cached = Cache.get(cacheKey, CONFIG.CACHE_SUN_MS);
+    if (cached) return cached;
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/astronomy/moon?location=${locationId}&date=${dateStr}&key=${CONFIG.KEY}`;
+      const data = await this.fetchJSON(url);
+      if (data.code !== '200') throw new Error('月相数据获取失败');
+      Cache.set(cacheKey, data);
+      return data;
+    } catch (e) {
+      const stale = Cache.get(cacheKey, Infinity);
+      if (stale) return stale;
+      return null;
+    }
+  },
+
+  async getWeather3d(locationId) {
+    const cacheKey = `weather3d_${locationId}`;
+    const cached = Cache.get(cacheKey, CONFIG.CACHE_WEATHER_MS);
+    if (cached) return cached;
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/weather/3d?location=${locationId}&key=${CONFIG.KEY}`;
+      const data = await this.fetchJSON(url);
+      if (data.code !== '200') throw new Error('3天预报获取失败');
+      Cache.set(cacheKey, data.daily);
+      return data.daily;
+    } catch (e) {
+      const stale = Cache.get(cacheKey, Infinity);
+      if (stale) return stale;
+      return null;
+    }
+  },
+
+  async getWarning(locationId) {
+    const cacheKey = `warning_${locationId}`;
+    const cached = Cache.get(cacheKey, CONFIG.CACHE_WEATHER_MS);
+    if (cached) return cached;
+    try {
+      const url = `${CONFIG.QWEATHER_BASE}/warning/now?location=${locationId}&key=${CONFIG.KEY}`;
+      const data = await this.fetchJSON(url);
+      if (data.code !== '200') return null;
+      Cache.set(cacheKey, data.warning || []);
+      return data.warning || [];
+    } catch (e) {
       return null;
     }
   },
@@ -526,6 +585,37 @@ const CalcEngine = {
                 + precipScore * 0.15 + pressureScore * 0.10 + seasonScore * 0.05;
 
     return Math.min(95, Math.round(total));
+  },
+
+  // 月相解读
+  getMoonInfo(moonData) {
+    if (!moonData || !moonData.moonPhase) return null;
+    const phases = moonData.moonPhase || [];
+    if (!phases.length) return null;
+    const p = phases[0];
+    const illum = parseFloat(p.illumination) || 50;
+    const icon = illum >= 90 ? '🌕' : illum >= 60 ? '🌔' : illum >= 30 ? '🌓' : illum >= 10 ? '🌒' : '🌑';
+    const name = illum >= 90 ? '满月' : illum >= 60 ? '盈凸月' : illum >= 30 ? '上/下弦月' : illum >= 5 ? '蛾眉月' : '新月';
+    const starTip = illum < 20 ? '月暗星明，星轨/银河最佳' : illum < 60 ? '月光适中，可兼顾地景' : '月光太亮，星空不理想';
+    return { icon, name, illumination: Math.round(illum), moonrise: p.moonrise || '', moonset: p.moonset || '', starTip };
+  },
+
+  // 综合摄影指数 (0-100)
+  getPhotoIndex(ctx) {
+    const scores = [
+      { name: '能见度', weight: 0.25, score: Math.min(100, ctx.visibilityKm * 5) },
+      { name: '霞光', weight: 0.20, score: Math.max(ctx.sunriseGlow, ctx.sunsetGlow) },
+      { name: '云量', weight: 0.15, score: ctx.cloudCover >= 25 && ctx.cloudCover <= 65 ? 100 : ctx.cloudCover >= 15 && ctx.cloudCover <= 80 ? 65 : ctx.cloudCover < 10 ? 40 : 20 },
+      { name: '湿度', weight: 0.10, score: ctx.humidity >= 40 && ctx.humidity <= 65 ? 100 : ctx.humidity >= 25 && ctx.humidity <= 80 ? 70 : 35 },
+      { name: '风力', weight: 0.10, score: ctx.windSpeed >= 5 && ctx.windSpeed <= 15 ? 100 : ctx.windSpeed < 20 ? 65 : 30 },
+      { name: '温度', weight: 0.10, score: ctx.temp >= 15 && ctx.temp <= 28 ? 100 : ctx.temp >= 5 && ctx.temp <= 35 ? 60 : 25 },
+      { name: '特殊', weight: 0.05, score: ctx.isAutumn ? 100 : ctx.isPostRain ? 85 : ctx.isMorning ? 70 : 55 },
+      { name: '月相', weight: 0.05, score: ctx.moonIllum ? (ctx.moonIllum < 20 ? 100 : ctx.moonIllum < 60 ? 65 : 30) : 50 },
+    ];
+    const total = Math.round(scores.reduce((sum, s) => sum + s.score * s.weight, 0));
+    const label = total >= 75 ? '适宜拍摄' : total >= 50 ? '可以出门' : '不太理想';
+    const color = total >= 75 ? '#10B981' : total >= 50 ? '#F59E0B' : '#9CA3AF';
+    return { total, label, color, scores };
   }
 };
 
@@ -633,33 +723,22 @@ function getWeatherBg(iconCode) {
 
 let _hourlyData = [];
 
-function renderWeatherCard(data) {
+function renderWeatherHero(data) {
   const card = document.getElementById('card-weather');
   const iconCode = data.icon || '100';
-  card.className = `photographer-card card-golden ${getWeatherBg(iconCode)} card-enter`;
+  card.className = `photographer-card card-golden ${getWeatherBg(iconCode)} card-enter text-center py-6`;
   card.innerHTML = `
-    <div class="text-center py-4">
-      <div class="text-6xl mb-1">${getWeatherEmoji(iconCode)}</div>
-      <div class="text-5xl font-bold text-gray-800 mb-1">${data.temp}°</div>
-      <div class="text-gray-600 mb-4 text-base">${data.text} · 体感 ${data.feelsLike}°</div>
-      <div class="grid grid-cols-4 gap-2 text-sm text-gray-600">
-        <div><i class="fa fa-flag mr-1"></i>${data.windDir || '-'}${data.windScale || ''}级</div>
-        <div><i class="fa fa-tint mr-1"></i>${data.humidity || '-'}%</div>
-        <div><i class="fa fa-tachometer mr-1"></i>${data.pressure || '-'}hPa</div>
-        <div><i class="fa fa-cloud mr-1"></i>${data.cloud || '-'}%</div>
-      </div>
-      <div class="text-xs text-gray-400 mt-3" id="weather-update-time"></div>
+    <div class="text-6xl mb-1">${getWeatherEmoji(iconCode)}</div>
+    <div class="text-5xl font-bold text-gray-800 mb-1">${data.temp}°</div>
+    <div class="text-gray-500 text-base mb-4">${data.text} · 体感 ${data.feelsLike}°</div>
+    <div class="inline-flex items-center gap-1 text-sm text-gray-500 cursor-pointer hover:text-gray-700" id="hourly-toggle">
+      <i class="fa fa-clock-o"></i> 逐小时预报 <i id="hourly-chevron" class="fa fa-chevron-down text-xs"></i>
     </div>
-    <div id="hourly-toggle" class="flex items-center justify-center gap-1 py-2 mt-2 border-t border-white/40 cursor-pointer touch-target text-sm text-gray-500 hover:text-gray-700 transition">
-      <i class="fa fa-clock-o"></i>
-      <span>逐小时预报</span>
-      <i id="hourly-chevron" class="fa fa-chevron-down text-xs"></i>
-    </div>
-    <div id="hourly-panel" class="hidden mt-2">
+    <div id="hourly-panel" class="hidden mt-3 pt-3 border-t border-white/30">
       <div id="hourly-scroll" class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1"></div>
     </div>
+    <div class="text-xs text-gray-400 mt-3" id="weather-update-time"></div>
   `;
-  // 绑定逐小时展开
   document.getElementById('hourly-toggle').addEventListener('click', () => {
     const panel = document.getElementById('hourly-panel');
     const chevron = document.getElementById('hourly-chevron');
@@ -677,123 +756,146 @@ function renderWeatherCard(data) {
 function renderHourlyItems() {
   const container = document.getElementById('hourly-scroll');
   if (!_hourlyData.length) {
-    container.innerHTML = '<div class="text-xs text-gray-400 py-2">暂无逐小时数据</div>';
+    container.innerHTML = '<div class="text-xs text-gray-400 py-2 w-full text-center">暂无逐小时数据</div>';
     return;
   }
+  const nowH = new Date().getHours();
   container.innerHTML = _hourlyData.slice(0, 24).map(h => {
-    const time = new Date(h.fxTime);
-    const hour = time.getHours();
-    const now = new Date().getHours();
-    const isNow = hour === now;
+    const hour = new Date(h.fxTime).getHours();
+    const isNow = hour === nowH;
     return `<div class="flex-shrink-0 w-14 text-center ${isNow ? 'bg-white/60 rounded-lg p-1' : 'p-1'}">
       <div class="text-xs text-gray-500">${hour}:00</div>
       <div class="text-lg my-1">${getWeatherEmoji(h.icon)}</div>
       <div class="text-sm font-bold text-gray-700">${h.temp}°</div>
-      <div class="text-xs text-gray-400">${h.windDir || ''}${h.windScale || ''}级</div>
+      <div class="text-xs text-gray-400">${h.windDir||''}${h.windScale||''}级</div>
     </div>`;
   }).join('');
 }
 
-function renderLightCard(sunData) {
+function renderLightTimeline(sunData) {
   const card = document.getElementById('card-light');
   const sunrise = sunData.sunrise, sunset = sunData.sunset;
   if (!sunrise || !sunset) {
-    card.innerHTML = `<div class="text-center text-gray-400 py-8">日出日落数据暂不可用</div>`;
+    card.innerHTML = '<div class="text-center text-gray-400 py-8">日出日落数据暂不可用</div>';
     return;
   }
   const golden = CalcEngine.getGoldenHour(sunrise, sunset);
   const blue = CalcEngine.getBlueHour(sunrise, sunset);
   const countdown = CalcEngine.getCountdown(sunrise, sunset);
-  const fmt = iso => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' });
-  };
+  const fmt = iso => { const d = new Date(iso); return d.toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'}); };
   const h = Math.floor(countdown.ms / 3600000);
   const m = Math.floor((countdown.ms % 3600000) / 60000);
+
+  // 计算当前时间在时间轴上的位置百分比
+  const srTs = new Date(sunrise).getTime();
+  const ssTs = new Date(sunset).getTime();
+  const nowTs = Date.now();
+  let posPct = 50;
+  if (nowTs < srTs) posPct = 5;
+  else if (nowTs > ssTs) posPct = 95;
+  else posPct = 5 + 90 * (nowTs - srTs) / (ssTs - srTs);
 
   card.className = 'photographer-card card-blue card-enter';
   card.innerHTML = `
     <div class="flex items-center gap-2 mb-4">
       <i class="fa fa-clock-o text-blue-hour text-xl"></i>
-      <span class="font-bold text-gray-700 text-lg">光影时间</span>
+      <span class="font-bold text-gray-700 text-lg">光影时间线</span>
     </div>
-    <div class="relative py-3 mb-4">
+    <div class="relative pt-2 pb-8 mb-4">
       <div class="flex justify-between text-xs text-gray-500 mb-2">
-        <span>${fmt(sunrise)} 日出</span>
+        <span>日出 ${fmt(sunrise)}</span>
         <span>日落 ${fmt(sunset)}</span>
       </div>
-      <div class="h-3 rounded-full overflow-hidden" style="background:linear-gradient(to right, #6366F1 0%, #6366F1 15%, #F59E0B 25%, #FDE68A 40%, #FDE68A 60%, #F59E0B 75%, #6366F1 85%, #6366F1 100%)"></div>
+      <div class="h-4 rounded-full overflow-hidden relative" style="background:linear-gradient(to right, #6366F1 0%, #6366F1 12%, #F59E0B 22%, #FDE68A 38%, #FDE68A 62%, #F59E0B 78%, #6366F1 88%, #6366F1 100%)">
+        <div class="absolute top-0 w-1.5 h-4 bg-red-500 rounded-full shadow" style="left:${Math.max(1, Math.min(98, posPct))}%"></div>
+      </div>
       <div class="flex justify-between text-xs text-gray-400 mt-1">
-        <span>蓝→金→</span><span>→金→蓝</span>
+        <span>蓝调</span><span>黄金</span><span>日常</span><span>黄金</span><span>蓝调</span>
       </div>
     </div>
-    <div class="space-y-1.5 text-sm">
-      <div class="flex justify-between"><span class="text-amber-500">🌅 清晨黄金</span><span>${fmt(golden.morning.start)} - ${fmt(golden.morning.end)}</span></div>
-      <div class="flex justify-between"><span class="text-blue-500">🌙 清晨蓝调</span><span>${fmt(blue.morning.start)} - ${fmt(blue.morning.end)}</span></div>
-      <div class="border-t my-1.5"></div>
-      <div class="flex justify-between"><span class="text-amber-500">🌇 傍晚黄金</span><span>${fmt(golden.evening.start)} - ${fmt(golden.evening.end)}</span></div>
-      <div class="flex justify-between"><span class="text-blue-500">🌙 傍晚蓝调</span><span>${fmt(blue.evening.start)} - ${fmt(blue.evening.end)}</span></div>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div class="p-3 bg-amber-50 rounded-xl"><div class="text-amber-600 font-medium">🌅 清晨黄金</div><div class="text-xs text-gray-500 mt-1">${fmt(golden.morning.start)} - ${fmt(golden.morning.end)}</div></div>
+      <div class="p-3 bg-blue-50 rounded-xl"><div class="text-blue-600 font-medium">🌙 清晨蓝调</div><div class="text-xs text-gray-500 mt-1">${fmt(blue.morning.start)} - ${fmt(blue.morning.end)}</div></div>
+      <div class="p-3 bg-amber-50 rounded-xl"><div class="text-amber-600 font-medium">🌇 傍晚黄金</div><div class="text-xs text-gray-500 mt-1">${fmt(golden.evening.start)} - ${fmt(golden.evening.end)}</div></div>
+      <div class="p-3 bg-blue-50 rounded-xl"><div class="text-blue-600 font-medium">🌙 傍晚蓝调</div><div class="text-xs text-gray-500 mt-1">${fmt(blue.evening.start)} - ${fmt(blue.evening.end)}</div></div>
     </div>
     <div class="mt-4 pt-3 border-t border-gray-100 text-center">
-      <span class="text-blue-hour font-bold">⏱ 距离${countdown.target}还有 ${h}h ${m}min</span>
+      <span class="text-blue-hour font-bold text-sm">⏱ 距离${countdown.target}还有 ${h}h ${m}min</span>
     </div>
   `;
 }
 
-function renderVisibilityCard(km) {
-  const card = document.getElementById('card-visibility');
-  const r = CalcEngine.getVisibilityRating(km);
-  card.className = 'photographer-card card-purple card-enter';
+function renderPhotoGauge(photoIndex) {
+  const card = document.getElementById('card-gauge');
+  card.className = 'photographer-card card-golden card-enter text-center py-6';
+  const angle = Math.max(-180, Math.min(0, -180 + (photoIndex.total / 100) * 180));
   card.innerHTML = `
-    <div class="flex items-center gap-2 mb-3">
-      <i class="fa fa-eye text-purple-500 text-xl"></i>
-      <span class="font-bold text-gray-700 text-lg">能见度</span>
+    <div class="text-xs text-gray-400 uppercase tracking-wider mb-2">综合摄影指数</div>
+    <div class="relative flex justify-center mb-1">
+      <div class="gauge-ring" style="width:180px;height:90px;border-radius:180px 180px 0 0;background:conic-gradient(from 180deg, #10B981 0deg, #F59E0B 90deg, #9CA3AF 180deg);mask:radial-gradient(circle at 50% 100%, transparent 58%, black 60%);-webkit-mask:radial-gradient(circle at 50% 100%, transparent 58%, black 60%);">
+        <div style="width:4px;height:50px;background:#1F2937;border-radius:2px;position:absolute;bottom:0;left:50%;transform-origin:bottom center;transform:translateX(-50%) rotate(${angle}deg);"></div>
+      </div>
     </div>
-    <div class="flex items-end gap-2 mb-3">
-      <span class="text-5xl font-bold" style="color:${r.color}">${km}</span>
-      <span class="text-gray-500 text-lg mb-1">公里</span>
-      <span class="ml-auto px-3 py-1 rounded-full text-sm font-bold text-white" style="background:${r.color}">${r.level}</span>
+    <div class="text-6xl font-bold text-gray-800 -mt-8 mb-1">${photoIndex.total}</div>
+    <div class="inline-block px-4 py-1 rounded-full text-sm font-bold mb-3" style="background:${photoIndex.color}20;color:${photoIndex.color}">
+      <i class="fa fa-${photoIndex.total >= 75 ? 'check-circle' : photoIndex.total >= 50 ? 'minus-circle' : 'exclamation-circle'} mr-1"></i>${photoIndex.label}
     </div>
-    <div class="w-full bg-gray-200 rounded-full h-2.5 mb-3">
-      <div class="h-2.5 rounded-full transition-all duration-700" style="width:${r.pct}%;background:${r.color}"></div>
+    <p class="text-sm text-gray-500" id="gauge-summary"></p>
+    <div class="grid grid-cols-4 gap-1 mt-4 pt-4 border-t border-gray-100 text-xs text-gray-400" id="gauge-detail">
+      ${photoIndex.scores.slice(0,4).map(s => `<div>${s.name}<div class="text-gray-700 font-bold">${Math.round(s.score)}</div></div>`).join('')}
     </div>
-    <div class="flex justify-between text-xs text-gray-400 mb-3"><span>0</span><span>5</span><span>10</span><span>15</span><span>20km</span></div>
-    <div class="bg-gray-50 rounded-xl p-3 text-sm text-gray-600"><i class="fa fa-lightbulb-o mr-1" style="color:${r.color}"></i>${r.desc}</div>
   `;
 }
 
-function renderGlowCard(sunriseProb, sunsetProb) {
-  const card = document.getElementById('card-sunset-glow');
+function renderMetricsGrid(ctx, weatherNow, moonInfo) {
+  const card = document.getElementById('card-metrics');
   card.className = 'photographer-card card-purple card-enter';
-  const srLabel = sunriseProb >= 70 ? '很可能烧！' : sunriseProb >= 50 ? '有希望' : sunriseProb >= 30 ? '概率较低' : '不太可能';
-  const ssLabel = sunsetProb >= 70 ? '很可能烧！' : sunsetProb >= 50 ? '有希望' : sunsetProb >= 30 ? '概率较低' : '不太可能';
-  const higher = sunsetProb >= sunriseProb ? 'sunset' : 'sunrise';
-  const max = Math.max(sunriseProb, sunsetProb);
-  const advice = max >= 70 ? '💡 高概率霞光！建议提前 1 小时到达机位'
-    : max >= 50 ? '💡 有一定概率出霞，值得关注天气变化'
-    : max >= 30 ? '💡 霞光条件一般，可考虑其他拍摄主题'
-    : '💡 今日霞光条件不佳，建议关注其他时段';
+  const windScale = weatherNow.windScale || '?';
+  const windDir = weatherNow.windDir || '';
+  const windSpeed = weatherNow.windSpeed || 0;
+  const srLabel = ctx.sunriseGlow >= 70 ? '很可能烧' : ctx.sunriseGlow >= 50 ? '有希望' : ctx.sunriseGlow >= 30 ? '概率低' : '不太可能';
+  const ssLabel = ctx.sunsetGlow >= 70 ? '很可能烧' : ctx.sunsetGlow >= 50 ? '有希望' : ctx.sunsetGlow >= 30 ? '概率低' : '不太可能';
+  const vis = CalcEngine.getVisibilityRating(ctx.visibilityKm);
 
   card.innerHTML = `
-    <div class="flex items-center gap-2 mb-4">
-      <i class="fa fa-fire text-purple-500 text-xl"></i>
-      <span class="font-bold text-gray-700 text-lg">朝霞 / 晚霞</span>
-    </div>
-    <div class="grid grid-cols-2 gap-4">
-      <div class="text-center p-4 rounded-xl ${higher==='sunrise'?'bg-amber-50 ring-2 ring-amber-300':'bg-gray-50'}">
-        <div class="text-3xl mb-1">🌄</div>
-        <div class="text-3xl font-bold ${higher==='sunrise'?'text-golden':'text-gray-400'}">${sunriseProb}%</div>
-        <div class="text-xs text-gray-500 mt-1">明早晨霞</div>
-        <div class="text-xs font-medium ${higher==='sunrise'?'text-golden':'text-gray-400'} mt-1">${srLabel}</div>
+    <div class="grid grid-cols-2 gap-3">
+      <div class="text-center p-4 rounded-2xl ${ctx.sunsetGlow>=70 ? 'bg-amber-50 ring-2 ring-amber-300' : 'bg-gray-50'}">
+        <div class="text-2xl mb-1">🔥</div>
+        <div class="text-2xl font-bold ${ctx.sunsetGlow>=70 ? 'text-golden' : ctx.sunsetGlow>=50 ? 'text-amber-600' : 'text-gray-500'}">${ctx.sunsetGlow}%</div>
+        <div class="text-xs text-gray-500 mt-0.5">今晚晚霞</div>
+        <div class="text-xs font-medium mt-1 ${ctx.sunsetGlow>=70 ? 'text-golden' : 'text-gray-400'}">${ssLabel}</div>
       </div>
-      <div class="text-center p-4 rounded-xl ${higher==='sunset'?'bg-amber-50 ring-2 ring-amber-300':'bg-gray-50'}">
-        <div class="text-3xl mb-1">🌇</div>
-        <div class="text-3xl font-bold ${higher==='sunset'?'text-golden':'text-gray-400'}">${sunsetProb}%</div>
-        <div class="text-xs text-gray-500 mt-1">今晚晚霞</div>
-        <div class="text-xs font-medium ${higher==='sunset'?'text-golden':'text-gray-400'} mt-1">${ssLabel}</div>
+      <div class="text-center p-4 rounded-2xl ${ctx.sunriseGlow>=70 ? 'bg-amber-50 ring-2 ring-amber-300' : 'bg-gray-50'}">
+        <div class="text-2xl mb-1">🌅</div>
+        <div class="text-2xl font-bold ${ctx.sunriseGlow>=70 ? 'text-golden' : ctx.sunriseGlow>=50 ? 'text-amber-600' : 'text-gray-500'}">${ctx.sunriseGlow}%</div>
+        <div class="text-xs text-gray-500 mt-0.5">明晨朝霞</div>
+        <div class="text-xs font-medium mt-1 ${ctx.sunriseGlow>=70 ? 'text-golden' : 'text-gray-400'}">${srLabel}</div>
+      </div>
+      <div class="text-center p-4 rounded-2xl bg-gray-50">
+        <div class="text-2xl mb-1">👁️</div>
+        <div class="text-2xl font-bold" style="color:${vis.color}">${ctx.visibilityKm} km</div>
+        <div class="text-xs text-gray-500 mt-0.5">能见度</div>
+        <div class="text-xs font-medium mt-1" style="color:${vis.color}">${vis.level}</div>
+      </div>
+      <div class="text-center p-4 rounded-2xl bg-gray-50">
+        <div class="text-2xl mb-1">${moonInfo ? moonInfo.icon : '🌓'}</div>
+        <div class="text-2xl font-bold text-gray-700">${moonInfo ? moonInfo.illumination : '?'}%</div>
+        <div class="text-xs text-gray-500 mt-0.5">${moonInfo ? moonInfo.name : '月相'}</div>
+        <div class="text-xs text-blue-hour font-medium mt-1">${moonInfo ? moonInfo.starTip : ''}</div>
+      </div>
+      <div class="text-center p-4 rounded-2xl bg-gray-50">
+        <div class="text-2xl mb-1">💨</div>
+        <div class="text-2xl font-bold text-gray-700">${windScale}级</div>
+        <div class="text-xs text-gray-500 mt-0.5">${windDir} ${windSpeed}km/h</div>
+        <div class="text-xs font-medium mt-1 ${windSpeed < 15 ? 'text-green-600' : 'text-amber-600'}">${windSpeed < 5 ? '静风' : windSpeed < 15 ? '微风' : windSpeed < 25 ? '和风' : '大风'}</div>
+      </div>
+      <div class="text-center p-4 rounded-2xl bg-gray-50">
+        <div class="text-2xl mb-1">💧</div>
+        <div class="text-2xl font-bold text-blue-500">${ctx.humidity}%</div>
+        <div class="text-xs text-gray-500 mt-0.5">相对湿度</div>
+        <div class="text-xs font-medium mt-1 ${ctx.humidity>=40&&ctx.humidity<=65 ? 'text-green-600' : ctx.humidity<30 ? 'text-amber-600' : 'text-blue-600'}">${ctx.humidity>=40&&ctx.humidity<=65?'适中':ctx.humidity<30?'干燥':'湿润'}</div>
       </div>
     </div>
-    <div class="mt-4 pt-3 border-t border-gray-100 text-sm text-gray-600 text-center">${advice}</div>
   `;
 }
 
@@ -866,8 +968,68 @@ function renderRecommendCard(recommendations) {
   });
 }
 
+function renderFutureDays(dailyData) {
+  const card = document.getElementById('card-future');
+  if (!dailyData || !dailyData.length) {
+    card.innerHTML = '<div class="text-center text-gray-400 py-4">未来预报暂不可用</div>';
+    return;
+  }
+  card.className = 'photographer-card card-purple card-enter';
+  const dayLabels = ['今天', '明天', '后天'];
+  const items = dailyData.slice(0, 3).map((d, i) => {
+    const icon = d.iconDay || '100';
+    const idx = CalcEngine.getPhotoIndex({
+      visibilityKm: 12, sunriseGlow: 50, sunsetGlow: 50,
+      cloudCover: parseInt(d.cloud) || 50, humidity: parseInt(d.humidity) || 50,
+      windSpeed: parseInt(d.windSpeedDay) || 0, temp: parseInt(d.tempMax) || 20,
+      isAutumn: false, isPostRain: false, isMorning: true, moonIllum: 50
+    });
+    const idxColor = idx.total >= 75 ? 'bg-green-50 text-green-500 ring-green-300' : idx.total >= 50 ? 'bg-amber-50 text-golden ring-amber-300' : 'bg-gray-50 text-gray-400 ring-gray-200';
+    const idxLabel = idx.total >= 75 ? '适宜' : idx.total >= 50 ? '一般' : '不宜';
+    return `<div class="text-center p-3 rounded-2xl ${i===0 ? idxColor + ' ring-2' : 'bg-gray-50'}">
+      <div class="text-xs text-gray-500 mb-1">${dayLabels[i]}</div>
+      <div class="text-xl mb-1">${getWeatherEmoji(icon)}</div>
+      <div class="font-bold text-gray-800 text-sm">${d.tempMax}°/${d.tempMin}°</div>
+      <div class="text-xs text-gray-400 mt-0.5">${d.textDay || ''}</div>
+      <div class="text-2xl font-bold mt-2" style="color:${idx.color}">${idx.total}</div>
+      <div class="text-xs font-medium mt-0.5 px-2 py-0.5 rounded-full inline-block" style="background:${idx.color}20;color:${idx.color}">${idxLabel}</div>
+    </div>`;
+  }).join('');
+
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-4">
+      <i class="fa fa-calendar text-blue-hour text-xl"></i>
+      <span class="font-bold text-gray-700 text-lg">未来天气</span>
+    </div>
+    <div class="grid grid-cols-3 gap-2">${items}</div>
+    <div class="text-xs text-gray-400 text-center mt-3">* 未来指数为简化推算，仅供参考</div>
+  `;
+}
+
+function renderWarningBanner(warnings) {
+  const card = document.getElementById('card-warning');
+  if (!warnings || !warnings.length) {
+    card.classList.add('hidden');
+    return;
+  }
+  card.classList.remove('hidden');
+  card.className = 'photographer-card card-enter';
+  const w = warnings[0];
+  const colors = { '黄色': 'bg-yellow-50 border-yellow-200', '橙色': 'bg-orange-50 border-orange-200', '红色': 'bg-red-50 border-red-200' };
+  const cls = colors[w.level] || 'bg-yellow-50 border-yellow-200';
+  card.innerHTML = `
+    <div class="flex items-start gap-2 ${cls} border rounded-xl p-4">
+      <i class="fa fa-exclamation-triangle text-yellow-500 mt-0.5"></i>
+      <div>
+        <div class="font-bold text-gray-700 text-sm">⚠️ ${w.typeName || '天气预警'}</div>
+        <p class="text-sm text-gray-600 mt-1">${w.text || ''}</p>
+      </div>
+    </div>
+  `;
+}
+
 function showSkeletons() {
-  const heights = { 'card-weather':'h-48', 'card-light':'h-40', 'card-visibility':'h-36', 'card-sunset-glow':'h-36', 'card-recommend':'h-44' };
+  const heights = { 'card-weather':'h-48', 'card-gauge':'h-48', 'card-metrics':'h-56', 'card-recommend':'h-44', 'card-light':'h-40', 'card-future':'h-40' };
   Object.entries(heights).forEach(([id, h]) => {
     document.getElementById(id).innerHTML = `<div class="skeleton ${h} rounded-xl"></div>`;
   });
@@ -970,20 +1132,21 @@ const App = {
   async fetchAllData(locationId) {
     showSkeletons();
     this.hideStaleBanner();
-    // 逐个请求，任一失败不阻塞其他
-    const results = { weatherNow: null, weather24h: null, sunData: null, airNow: null };
+    const results = { weatherNow: null, weather24h: null, sunData: null, airNow: null, moonData: null, dailyData: null, warnings: null };
     const errors = [];
     const tasks = [
       API.getWeatherNow(locationId).then(d => results.weatherNow = d).catch(e => errors.push('天气:'+e.message)),
       API.getWeather24h(locationId).then(d => results.weather24h = d).catch(e => errors.push('逐小时:'+e.message)),
       API.getSunTimes(locationId).then(d => results.sunData = d).catch(e => errors.push('日出日落:'+e.message)),
-      API.getAirNow(locationId).then(d => results.airNow = d).catch(e => {}), // 空气质量可选
+      API.getAirNow(locationId).then(d => results.airNow = d).catch(e => {}),
+      API.getMoonPhase(locationId).then(d => results.moonData = d).catch(e => {}),
+      API.getWeather3d(locationId).then(d => results.dailyData = d).catch(e => {}),
+      API.getWarning(locationId).then(d => results.warnings = d).catch(e => {}),
     ];
     await Promise.allSettled(tasks);
-    // 至少要有天气数据才能渲染
     if (!results.weatherNow) {
       if (this.currentData) {
-        this.updateUI(this.currentData.weatherNow, this.currentData.weather24h, this.currentData.sunData, this.currentData.airNow);
+        this.updateUI(this.currentData);
         this.showStaleBanner();
       } else {
         this.clearSkeletonsWithHint('数据加载失败：' + (errors.join('; ') || '网络异常'));
@@ -992,33 +1155,50 @@ const App = {
       return;
     }
     this.currentData = results;
-    this.updateUI(results.weatherNow, results.weather24h, results.sunData, results.airNow);
+    this.updateUI(results);
     if (errors.length) this.showError('部分数据加载失败：' + errors.join('; '));
   },
 
-  updateUI(weatherNow, weather24h, sunData, airNow) {
-    renderWeatherCard(weatherNow);
+  updateUI(data) {
+    const { weatherNow, weather24h, sunData, airNow, moonData, dailyData, warnings } = data;
     _hourlyData = weather24h || [];
 
     const visibilityKm = CalcEngine.estimateVisibility(weatherNow, weather24h);
 
-    renderLightCard(sunData || {});
-    renderVisibilityCard(Math.round(visibilityKm));
-
     const hourlyData = weather24h || [];
     const sunriseProb = CalcEngine.getGlowProbability(hourlyData, true, weatherNow);
     const sunsetProb = CalcEngine.getGlowProbability(hourlyData, false, weatherNow);
-    renderGlowCard(sunriseProb, sunsetProb);
+    const moonInfo = CalcEngine.getMoonInfo(moonData);
 
-    const ctx = this.buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData);
+    const ctx = this.buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo);
+    const photoIndex = CalcEngine.getPhotoIndex(ctx);
     const recs = RecommendEngine.getRecommendations(ctx);
+
+    // 仪表盘摘要文字
+    const summaryParts = [];
+    if (sunsetProb >= 65) summaryParts.push('晚霞概率高');
+    else if (sunriseProb >= 65) summaryParts.push('朝霞概率高');
+    if (visibilityKm >= 10) summaryParts.push('能见度佳');
+    if (ctx.windSpeed < 15 && ctx.windSpeed > 3) summaryParts.push('风力适宜');
+    if (ctx.isStorm) summaryParts.push('📡 注意天气变化');
+    if (!summaryParts.length) summaryParts.push('条件一般，可选择性出行');
+
+    // 渲染
+    renderWeatherHero(weatherNow);
+    renderPhotoGauge(photoIndex);
+    renderMetricsGrid(ctx, weatherNow, moonInfo);
     renderRecommendCard(recs);
+    renderLightTimeline(sunData || {});
+    renderFutureDays(dailyData);
+    renderWarningBanner(warnings);
 
     document.getElementById('weather-update-time').textContent =
       `📍 ${this.currentCity.name} · 更新于 ${new Date().toLocaleTimeString('zh-CN')}`;
+    document.getElementById('gauge-summary').textContent = summaryParts.join(' · ');
+    if (summaryParts.includes('注意天气变化')) document.getElementById('gauge-summary').className = 'text-sm text-amber-600';
   },
 
-  buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData) {
+  buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo) {
     const icon = weatherNow.icon || '100';
     const now = new Date();
     const hour = now.getHours();
@@ -1027,17 +1207,12 @@ const App = {
     const precip = parseFloat(weatherNow.precip) || 0;
     const temp = parseInt(weatherNow.temp) || 15;
 
-    // 雨后转晴：当前晴/多云 + 无降水 + 近24h有雨
     const isPostRain = (text.includes('晴') || text.includes('多云')) && precip === 0 && !text.includes('雨');
-    // 雷暴天气
     const isStorm = text.includes('雷') || text.includes('暴');
-    // 严寒
     const isCold = temp < 0;
-    // 秋季 (9-11月)
     const isAutumn = month >= 9 && month <= 11;
 
-    // 昼夜温差：从逐小时预报中提取
-    let tempDiff = 8; // 默认值
+    let tempDiff = 8;
     if (weather24h && weather24h.length > 0) {
       const temps = weather24h.map(h => parseInt(h.temp) || 0).filter(t => t !== 0);
       if (temps.length >= 2) tempDiff = Math.max(...temps) - Math.min(...temps);
@@ -1061,6 +1236,8 @@ const App = {
       isCold,
       isAutumn,
       tempDiff,
+      temp,
+      moonIllum: moonInfo ? moonInfo.illumination : 50,
       weatherText: weatherNow.text || ''
     };
   },
@@ -1155,7 +1332,7 @@ const App = {
   },
 
   clearSkeletonsWithHint(hint) {
-    const cards = ['card-weather','card-light','card-visibility','card-sunset-glow','card-recommend'];
+    const cards = ['card-weather','card-gauge','card-metrics','card-recommend','card-light','card-future'];
     cards.forEach((id, i) => {
       const card = document.getElementById(id);
       if (i === 0) {
