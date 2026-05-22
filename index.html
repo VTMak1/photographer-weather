@@ -337,14 +337,14 @@ tailwind.config = {
 </header>
 
 <!-- 主内容区 -->
-<main id="main-content" class="pt-14 pb-20 px-4 max-w-lg mx-auto space-y-3">
+<main id="main-content" class="pt-12 pb-20 px-4 max-w-lg mx-auto space-y-3">
   <!-- 下拉刷新指示器 -->
   <div id="pull-indicator" class="text-center text-xs text-slate-500 py-2 opacity-0 transition-opacity duration-200">
     <i class="fa fa-arrow-down"></i> 下拉刷新
   </div>
 
   <!-- 综合摄影指数 Hero（去卡片化，浮在天空背景上） -->
-  <section id="card-gauge" class="relative z-10 text-center py-8 card-enter" style="animation-delay:0ms">
+  <section id="card-gauge" class="relative z-10 text-center pt-4 pb-8 card-enter" style="animation-delay:0ms">
     <div class="skeleton h-56 rounded-xl mx-4"></div>
   </section>
 
@@ -356,11 +356,6 @@ tailwind.config = {
   <!-- 6格指标网格 -->
   <section id="card-metrics" class="photographer-card card-accent-top purple card-enter" style="animation-delay:120ms">
     <div class="skeleton h-56 rounded-xl"></div>
-  </section>
-
-  <!-- 本周最佳拍摄日 -->
-  <section id="card-best-week" class="photographer-card card-accent-top golden reveal-on-scroll">
-    <div class="skeleton h-28 rounded-xl"></div>
   </section>
 
   <!-- 可折叠：拍摄推荐 -->
@@ -382,7 +377,8 @@ tailwind.config = {
   <section id="card-warning" class="hidden"></section>
 
   <!-- 作者署名 -->
-  <div class="text-center text-xs text-slate-600 py-2">Made by <span class="text-slate-500">Vito Mak</span> · 数据来源 <span class="text-slate-600 underline decoration-dotted cursor-pointer hover:text-slate-400" onclick="App.showToast('气象数据来源：和风天气 API v7\n实时天气 · 逐小时预报 · 日出日落 · 月相 · 空气质量 · 3日预报\ncustom host: n43aara9tt.re.qweatherapi.com')">和风天气 API</span></div>
+  <div class="text-center text-xs text-slate-500 pt-4 pb-1">Made by Vito Mak</div>
+  <div class="text-center text-xs text-slate-600 pb-3">数据来源 <span class="underline decoration-dotted cursor-pointer hover:text-slate-400" onclick="App.showToast('气象数据来源：和风天气 API v7\n实时天气 · 逐小时预报 · 日出日落 · 月相 · 空气质量 · 3日预报\ncustom host: n43aara9tt.re.qweatherapi.com')">和风天气 API</span></div>
 </main>
 
 <!-- 城市选择面板遮罩 -->
@@ -1461,82 +1457,8 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
   const month = new Date().getMonth() + 1;
   const currMoonIllum = moonInfo ? moonInfo.illumination : 50;
 
-  const items = dailyData.slice(0, 3).map((d, i) => {
-    const icon = d.iconDay || '100';
-    const textDay = (d.textDay || '').toLowerCase();
-    const vis = parseFloat(d.vis);
-    const visibilityKm = (!isNaN(vis) && vis > 0 && vis < 50) ? Math.round(vis) : CalcEngine.estimateVisibility(
-      { text: d.textDay, humidity: d.humidity, cloud: d.cloud, windSpeed: d.windSpeedDay, pressure: d.pressure }, null
-    );
-    const cloudCover = parseInt(d.cloud) || 50;
-    const humidity = parseInt(d.humidity) || 50;
-    const windSpeed = parseInt(d.windSpeedDay) || 0;
-    const temp = parseInt(d.tempMax) || 20;
-    const isPostRain = (textDay.includes('晴') || textDay.includes('多云')) && !textDay.includes('雨');
-    const isAutumn = month >= 9 && month <= 11;
-    const isMorning = true; // 日间指数
-
-    // 用3d数据估算霞光概率
-    const cloudScore = (cloudCover >= 20 && cloudCover <= 70) ? 90 : (cloudCover >= 10 && cloudCover <= 85) ? 55 : 20;
-    const humScore = (humidity >= 35 && humidity <= 65) ? 90 : (humidity >= 25 && humidity <= 80) ? 65 : 30;
-    const glowEst = Math.round(cloudScore * 0.4 + humScore * 0.25 + (isPostRain ? 25 : 0) + (isAutumn ? 10 : 0));
-
-    const idx = CalcEngine.getPhotoIndex({
-      visibilityKm,
-      sunriseGlow: glowEst,
-      sunsetGlow: glowEst,
-      cloudCover,
-      humidity,
-      windSpeed,
-      temp,
-      isAutumn,
-      isPostRain,
-      isMorning,
-      moonIllum: currMoonIllum
-    });
-    const idxColor = idx.total >= 75 ? 'bg-emerald-400/10 border-emerald-400/50' : idx.total >= 50 ? 'bg-amber-400/10 border-amber-400/50' : 'bg-slate-800/50';
-    const idxTextColor = idx.total >= 75 ? 'text-emerald-400' : idx.total >= 50 ? 'text-golden' : 'text-slate-400';
-    const idxLabel = idx.total >= 75 ? '适宜' : idx.total >= 50 ? '一般' : '不宜';
-    const idxBg = idx.total >= 75 ? 'bg-emerald-400/20' : idx.total >= 50 ? 'bg-amber-400/20' : 'bg-slate-700/30';
-    return `<div class="text-center p-3 rounded-2xl ${i===0 ? idxColor + ' border-2' : 'bg-slate-800/50'}">
-      <div class="text-xs text-slate-500 mb-1">${dayLabels[i]}</div>
-      <div class="text-xl mb-1">${getWeatherEmoji(icon)}</div>
-      <div class="font-bold text-slate-200 text-sm">${d.tempMax}°/${d.tempMin}°</div>
-      <div class="text-xs text-slate-500 mt-0.5">${d.textDay || ''}</div>
-      <div class="text-xs text-slate-600 mt-1">摄影指数</div>
-      <div class="text-2xl font-bold mt-1 ${idxTextColor}">${idx.total}</div>
-      <div class="text-xs font-medium mt-0.5 px-2 py-0.5 rounded-full inline-block ${idxBg} ${idxTextColor}">${idxLabel}</div>
-    </div>`;
-  }).join('');
-
-  card.innerHTML = `
-    <div class="collapsible-header mb-3">
-      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
-        <i class="fa fa-calendar text-blue-hour text-xl flex-shrink-0"></i>
-        <span class="font-bold text-slate-100 text-lg">未来天气 <span class="text-xs text-slate-600 font-normal">摄影指数 /100</span></span>
-        <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0 ml-auto"></i>
-      </div>
-    </div>
-    <div class="collapsible-body">
-      <div class="grid grid-cols-3 gap-2">${items}</div>
-      <div class="text-xs text-slate-600 text-center mt-3">* 基于3日预报数据推算，仅供参考</div>
-    </div>
-  `;
-}
-
-function renderBestWeek(dailyData, weatherNow, moonInfo) {
-  const card = document.getElementById('card-best-week');
-  if (!dailyData || dailyData.length < 3) {
-    card.innerHTML = '';
-    return;
-  }
-  card.className = 'photographer-card card-accent-top golden reveal-on-scroll py-4';
-
-  const dayLabels = ['今天', '明天', '后天'];
-  const month = new Date().getMonth() + 1;
-  const currMoonIllum = moonInfo ? moonInfo.illumination : 50;
-
   const scored = dailyData.slice(0, 3).map((d, i) => {
+    const icon = d.iconDay || '100';
     const textDay = (d.textDay || '').toLowerCase();
     const vis = parseFloat(d.vis);
     const visibilityKm = (!isNaN(vis) && vis > 0 && vis < 50) ? Math.round(vis) : CalcEngine.estimateVisibility(
@@ -1552,28 +1474,47 @@ function renderBestWeek(dailyData, weatherNow, moonInfo) {
     const humScore = (humidity >= 35 && humidity <= 65) ? 90 : (humidity >= 25 && humidity <= 80) ? 65 : 30;
     const glowEst = Math.round(cloudScore * 0.4 + humScore * 0.25 + (isPostRain ? 25 : 0) + (isAutumn ? 10 : 0));
     const idx = CalcEngine.getPhotoIndex({ visibilityKm, sunriseGlow: glowEst, sunsetGlow: glowEst, cloudCover, humidity, windSpeed, temp, isAutumn, isPostRain, isMorning: true, moonIllum: currMoonIllum });
-    return { ...idx, day: dayLabels[i], icon: d.iconDay || '100', tempMax: d.tempMax, tempMin: d.tempMin, text: d.textDay || '' };
+    return { day: dayLabels[i], icon, tempMax: d.tempMax, tempMin: d.tempMin, textDay: d.textDay || '', idx };
   });
 
-  const bestTotal = Math.max(...scored.map(s => s.total));
-  const bestIndices = scored.reduce((arr, s, i) => { if (s.total === bestTotal) arr.push(i); return arr; }, []);
-  const bestDayText = bestIndices.map(i => scored[i].day).join(' / ');
+  // 最佳拍摄日（同分全部高亮）
+  const bestTotal = Math.max(...scored.map(s => s.idx.total));
+  const bestIndices = scored.reduce((arr, s, i) => { if (s.idx.total === bestTotal) arr.push(i); return arr; }, []);
 
   card.innerHTML = `
-    <div class="flex items-center gap-2 mb-3">
-      <i class="fa fa-calendar-check-o text-golden text-lg"></i>
-      <span class="font-bold text-slate-100">最佳拍摄日</span>
-      <span class="text-xs text-golden font-bold bg-golden/10 px-2 py-0.5 rounded-full ml-auto">${bestDayText} ${bestTotal}分</span>
+    <div class="collapsible-header mb-3">
+      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+        <i class="fa fa-calendar text-blue-hour text-xl flex-shrink-0"></i>
+        <span class="font-bold text-slate-100 text-lg">未来 3 日 · 摄影预报</span>
+        <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0 ml-auto"></i>
+      </div>
     </div>
-    <div class="grid grid-cols-3 gap-2">
-      ${scored.map((s, i) => `
-        <div class="text-center p-3 rounded-xl ${bestIndices.includes(i) ? 'bg-golden/10 ring-2 ring-golden/40' : 'bg-slate-800/30'}">
-          <div class="text-xs text-slate-500">${s.day}</div>
-          <div class="text-xl my-1">${getWeatherEmoji(s.icon)}</div>
-          <div class="text-xs text-slate-400">${s.tempMax}°/${s.tempMin}°</div>
-          <div class="text-lg font-bold mt-1 ${s.total >= 75 ? 'text-emerald-400' : s.total >= 50 ? 'text-golden' : 'text-slate-400'}">${s.total}</div>
-        </div>
-      `).join('')}
+    <div class="collapsible-body">
+      <div class="grid grid-cols-3 gap-2">
+        ${scored.map((s, i) => {
+          const isBest = bestIndices.includes(i);
+          const idx = s.idx;
+          const scoreClr = idx.total >= 75 ? 'text-emerald-400' : idx.total >= 50 ? 'text-golden' : 'text-slate-400';
+          const labelClr = idx.total >= 75 ? 'bg-emerald-400/20 text-emerald-400' : idx.total >= 50 ? 'bg-amber-400/20 text-golden' : 'bg-slate-700/30 text-slate-400';
+          const label = idx.total >= 75 ? '适宜' : idx.total >= 50 ? '一般' : '不宜';
+          // 最佳日金色高亮，否则今天用弱边框，其它天无边框
+          const cardCls = isBest
+            ? 'bg-golden/10 border-2 border-golden/50'
+            : (i === 0 ? 'bg-slate-800/50 border border-slate-600/20' : 'bg-slate-800/30');
+          const dayBadge = isBest
+            ? '<span class="text-xs text-golden font-bold bg-golden/20 px-1.5 py-0.5 rounded-full ml-0.5">🏆 最佳</span>'
+            : (i === 0 ? '<span class="text-xs text-slate-500 font-normal ml-0.5">· 今天</span>' : '');
+          return `<div class="text-center p-3 rounded-2xl ${cardCls}">
+            <div class="text-xs text-slate-500 mb-1">${s.day}${dayBadge}</div>
+            <div class="text-xl mb-1">${getWeatherEmoji(s.icon)}</div>
+            <div class="font-bold text-slate-200 text-sm">${s.tempMax}°/${s.tempMin}°</div>
+            <div class="text-xs text-slate-500 mt-0.5">${s.textDay}</div>
+            <div class="text-2xl font-bold mt-1.5 ${scoreClr}">${idx.total}</div>
+            <div class="text-xs font-medium mt-0.5 px-2 py-0.5 rounded-full inline-block ${labelClr}">${label}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="text-xs text-slate-600 text-center mt-3">* 基于3日预报数据推算，仅供参考</div>
     </div>
   `;
 }
@@ -1613,7 +1554,6 @@ function showSkeletons() {
     { id: 'card-gauge',    h: 'h-56' },
     { id: 'card-weather',  h: 'h-24' },
     { id: 'card-metrics',  h: 'h-36' },
-    { id: 'card-best-week',h: 'h-28' },
     { id: 'card-recommend',h: 'h-44' },
     { id: 'card-light',    h: 'h-40' },
     { id: 'card-future',   h: 'h-40' },
@@ -1911,7 +1851,6 @@ const App = {
     renderRecommendCard(recs);
     renderLightTimeline(sunData || {});
     renderFutureDays(dailyData, weatherNow, moonInfo);
-    renderBestWeek(dailyData, weatherNow, moonInfo);
     renderWarningBanner(allWarnings);
 
     document.getElementById('weather-update-time').textContent =
@@ -2065,7 +2004,7 @@ const App = {
   clearSkeletonsWithHint(hint) {
     const card = document.getElementById('card-weather');
     card.innerHTML = `<div class="text-center py-12 text-slate-500"><i class="fa fa-map-marker text-4xl mb-3 block"></i><p class="text-sm">${hint}</p><button class="mt-3 bg-golden text-slate-900 px-5 py-2 rounded-full text-sm font-bold" onclick="App.openCitySheet()">手动选择城市</button></div>`;
-    ['card-gauge','card-metrics','card-best-week','card-recommend','card-light','card-future'].forEach(id => {
+    ['card-gauge','card-metrics','card-recommend','card-light','card-future'].forEach(id => {
       document.getElementById(id).innerHTML = '';
     });
   },
