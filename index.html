@@ -506,6 +506,74 @@ const Geo = {
 };
 
 // ===========================
+// 气象公式模块 — 标准气象算法
+// ===========================
+const Meteo = {
+  // Rothfusz 热指数 (US NWS) — 温度 ≥27°C & 湿度 ≥40% 时有效
+  heatIndex(tempC, humidity) {
+    if (tempC < 27 || humidity < 40) return tempC;
+    const Tf = tempC * 9 / 5 + 32;  // °C → °F
+    const R = humidity;
+    let HI = -42.379 + 2.04901523 * Tf + 10.14333127 * R
+           - 0.22475541 * Tf * R - 6.83783e-3 * Tf * Tf
+           - 5.481717e-2 * R * R + 1.22874e-3 * Tf * Tf * R
+           + 8.5282e-4 * Tf * R * R - 1.99e-6 * Tf * Tf * R * R;
+    // 低湿调整
+    if (R < 13 && Tf >= 80 && Tf <= 112) {
+      HI -= ((13 - R) / 4) * Math.sqrt((17 - Math.abs(Tf - 95)) / 17);
+    }
+    // 高湿调整
+    if (R > 85 && Tf >= 80 && Tf <= 87) {
+      HI += ((R - 85) / 10) * ((87 - Tf) / 5);
+    }
+    return Math.round((HI - 32) * 5 / 9);  // °F → °C
+  },
+
+  // 加拿大 Humidex — 使用露点温度
+  humidex(tempC, dewPointC) {
+    if (tempC < 20 || dewPointC == null) return tempC;
+    const Td = dewPointC + 273.16;  // 露点 → K
+    const e = 6.11 * Math.exp(5417.7530 * (1 / 273.16 - 1 / Td));
+    const H = tempC + 0.5555 * (e - 10);
+    return Math.round(Math.max(tempC, H));
+  },
+
+  // 风寒指数 (JAG/TI) — 温度 ≤10°C & 风速 ≥4.8km/h 时有效
+  windChill(tempC, windKmh) {
+    if (tempC > 10 || windKmh < 4.8) return tempC;
+    const V = Math.pow(windKmh / 1.852, 0.16);  // km/h → knots → V^0.16
+    const WC = 13.12 + 0.6215 * tempC - 11.37 * Math.pow(windKmh, 0.16) + 0.3965 * tempC * Math.pow(windKmh, 0.16);
+    return Math.round(WC);
+  },
+
+  // 露点差 → 雾/霾概率
+  dewPointSpreadCategory(tempC, dewPointC) {
+    if (dewPointC == null) return { spread: null, fogRisk: 'unknown', visFactor: 0 };
+    const spread = tempC - dewPointC;
+    if (spread <= 1.5) return { spread, fogRisk: 'high', visFactor: -5, desc: '露点接近气温，浓雾高风险' };
+    if (spread <= 3)   return { spread, fogRisk: 'moderate', visFactor: -2, desc: '露点差小，薄雾可能' };
+    if (spread <= 5)   return { spread, fogRisk: 'low', visFactor: 0, desc: '露点差适中' };
+    if (spread >= 12)  return { spread, fogRisk: 'none', visFactor: +2, desc: '空气干燥，能见度极佳' };
+    return { spread, fogRisk: 'none', visFactor: +1, desc: '露点差大，空气清澈' };
+  },
+
+  // 体感综合：高温用热指数，低温用风寒，舒适用实际温度
+  apparentTemp(tempC, humidity, windKmh, dewPointC) {
+    if (tempC >= 27 && humidity >= 40) {
+      return this.heatIndex(tempC, humidity);
+    }
+    if (tempC <= 10 && windKmh >= 4.8) {
+      return this.windChill(tempC, windKmh);
+    }
+    // 常温高湿用 Humidex
+    if (tempC >= 20 && dewPointC != null && humidity >= 60) {
+      return this.humidex(tempC, dewPointC);
+    }
+    return tempC;
+  }
+};
+
+// ===========================
 // 计算引擎
 // ===========================
 const CalcEngine = {
@@ -551,6 +619,7 @@ const CalcEngine = {
   },
 
   estimateVisibility(weatherNow, weather24h) {
+    // 优先用 API 实测值
     const visRaw = parseFloat(weatherNow.vis);
     if (!isNaN(visRaw) && visRaw > 0 && visRaw < 25) return Math.round(visRaw);
 
@@ -559,7 +628,11 @@ const CalcEngine = {
     const cloud = parseInt(weatherNow.cloud) || 50;
     const windSpeed = parseInt(weatherNow.windSpeed) || 0;
     const pressure = parseInt(weatherNow.pressure) || 1013;
+    const temp = parseInt(weatherNow.temp) || 15;
+    const dewRaw = parseFloat(weatherNow.dew);
+    const dewPoint = !isNaN(dewRaw) ? dewRaw : null;
 
+    // 基础能见度：天气文字判定
     let baseVis = 15;
     if (text.includes('雾') || text.includes('霾')) baseVis = 1;
     else if (text.includes('沙') || text.includes('尘') || text.includes('浮尘')) baseVis = 2;
@@ -570,17 +643,32 @@ const CalcEngine = {
     else if (text.includes('多云')) baseVis = 14;
     else if (text.includes('晴')) baseVis = 18;
 
-    if (humidity > 90) baseVis -= 5;
+    // 露点差修正（雾的形成条件：气温接近露点）
+    if (dewPoint !== null) {
+      const spread = temp - dewPoint;
+      if (spread <= 1.5)      baseVis -= 5;  // 露点差极小 → 浓雾高风险
+      else if (spread <= 3)   baseVis -= 2;  // 露点差小 → 薄雾可能
+      else if (spread <= 5)   baseVis += 0;  // 适中
+      else if (spread >= 12)  baseVis += 2;  // 非常干燥 → 空气清澈
+      else baseVis += 1;                     // 干燥 → 略好
+    }
+
+    // 湿度修正
+    if (humidity > 90) baseVis -= 4;
     else if (humidity > 80) baseVis -= 3;
     else if (humidity > 70) baseVis -= 1;
     else if (humidity < 40) baseVis += 1;
 
+    // 云量修正
     if (cloud > 90) baseVis -= 2;
     else if (cloud < 20) baseVis += 1;
 
-    if (windSpeed > 15) baseVis += 2;
-    else if (windSpeed < 5) baseVis -= 1;
+    // 风速修正：大风能吹散雾霾
+    if (windSpeed > 20) baseVis += 2;
+    else if (windSpeed > 12) baseVis += 1;
+    else if (windSpeed < 3) baseVis -= 1;
 
+    // 气压修正
     if (pressure > 1020) baseVis += 1;
     else if (pressure < 1005) baseVis -= 1;
 
@@ -666,9 +754,23 @@ const CalcEngine = {
     else if (month === 12 || month <= 2) seasonScore = 60;   // 冬
     else seasonScore = 50;                                    // 夏
 
-    // 加权综合：云量最重要(35%)，降水反映雨后窗口(18%)，湿度(18%)，风速(12%)，气压(10%)，季节(7%)
-    const total = cloudScore * 0.35 + precipScore * 0.18 + humidityScore * 0.18
-                + windScore * 0.12 + pressureScore * 0.10 + seasonScore * 0.07;
+    // 大气洁净度评分（露点差）：干燥洁净空气散射更纯正的暖色调
+    let airQualityScore = 50;
+    const temp = parseInt(weatherNow?.temp) || 15;
+    const dewRaw = parseFloat(weatherNow?.dew);
+    if (!isNaN(dewRaw)) {
+      const spread = temp - dewRaw;
+      if (spread >= 8) airQualityScore = 100;       // 干燥洁净，散射纯正
+      else if (spread >= 5) airQualityScore = 80;    // 适中偏干
+      else if (spread >= 3) airQualityScore = 60;    // 适中
+      else if (spread >= 1.5) airQualityScore = 40;  // 偏湿，散射偏白
+      else airQualityScore = 20;                      // 近饱和，色彩发灰
+    }
+
+    // 加权综合：云量(30%) + 降水(18%) + 湿度(16%) + 风速(12%) + 气压(9%) + 季节(7%) + 大气洁净度(8%)
+    const total = cloudScore * 0.30 + precipScore * 0.18 + humidityScore * 0.16
+                + windScore * 0.12 + pressureScore * 0.09 + seasonScore * 0.07
+                + airQualityScore * 0.08;
 
     return Math.min(95, Math.round(total));
   },
@@ -850,23 +952,36 @@ function renderWeatherHero(data, ctx) {
   const windScale = data.windScale || '?';
   const windDir = data.windDir || '';
   const windSpeed = parseInt(data.windSpeed) || 0;
+  const dewRaw = parseFloat(data.dew);
+  const dewPoint = !isNaN(dewRaw) ? dewRaw : null;
 
-  // 简易热指数作为参考对照（仅当温度 ≥27°C 且湿度 ≥40% 时适用）
-  let heatNote = '';
-  if (temp >= 27 && humidity >= 40) {
-    const hi = temp + (humidity - 50) * 0.15 + (temp - 30) * 0.6;
-    const adjFeel = Math.round(temp + (humidity - 40) * 0.12);
-    if (adjFeel > temp + 2) {
-      heatNote = `高湿体感 ≈${adjFeel}°`;
+  // 标准气象公式计算体感（用于验证 API 值）
+  const meteoFeel = Meteo.apparentTemp(temp, humidity, windSpeed, dewPoint);
+  const apiFeel = parseInt(data.feelsLike) || temp;
+
+  // 当 API 值与标准公式偏差较大时显示对照
+  let feelNote = '';
+  if (temp >= 30 && humidity >= 60) {
+    const hi = Meteo.heatIndex(temp, humidity);
+    if (Math.abs(hi - apiFeel) >= 2) {
+      feelNote = `热指数 ${hi}°`;
+    }
+  } else if (temp <= 5 && windSpeed >= 10) {
+    const wc = Meteo.windChill(temp, windSpeed);
+    if (Math.abs(wc - apiFeel) >= 2) {
+      feelNote = `风寒 ${wc}°`;
     }
   }
 
-  // 根据气温动态背景
+  // 动态背景
   let bgGradient;
   if (temp >= 35) bgGradient = 'linear-gradient(135deg, #2d1a1a 0%, #1e1a1a 100%)';
   else if (temp >= 28) bgGradient = 'linear-gradient(135deg, #2d2415 0%, #1e293b 100%)';
   else if (temp <= 0) bgGradient = 'linear-gradient(135deg, #1a1f2e 0%, #1e293b 100%)';
   else bgGradient = 'linear-gradient(135deg, #1e293b 0%, #1a1a2e 100%)';
+
+  // 数据来源标注
+  const sourceBadge = `<span class="text-slate-600 text-xs" title="数据来源：和风天气 API">ⓘ 和风</span>`;
 
   card.className = 'photographer-card card-accent-top golden card-enter text-center py-5';
   card.style.background = bgGradient;
@@ -875,17 +990,17 @@ function renderWeatherHero(data, ctx) {
       <span class="text-5xl">${getWeatherEmoji(iconCode)}</span>
       <div class="text-left">
         <div class="text-5xl font-bold text-slate-100 leading-none">${data.temp}°</div>
-        <div class="text-sm text-slate-400 mt-0.5">${data.text}</div>
+        <div class="text-sm text-slate-400 mt-0.5">${data.text} ${sourceBadge}</div>
       </div>
     </div>
     <div class="inline-flex items-center gap-1 text-sm font-medium px-3 py-1 rounded-full mb-3" style="background:${temp>=28?'rgba(251,146,60,0.15)':'rgba(148,163,184,0.1)'}">
       <span class="text-slate-400">体感</span>
-      <span class="text-slate-100">${data.feelsLike}°</span>
-      ${heatNote ? `<span class="text-xs text-amber-400 ml-1">(${heatNote})</span>` : ''}
+      <span class="text-slate-100">${apiFeel}°</span>
+      ${feelNote ? `<span class="text-xs text-amber-400 ml-1">（${feelNote}）</span>` : ''}
     </div>
     <div class="flex justify-center gap-5 text-xs text-slate-500 mb-4">
       <div class="flex items-center gap-1"><span class="text-base">💧</span>${humidity}%</div>
-      <div class="flex items-center gap-1"><span class="text-base">💨</span>${windDir} ${windScale}级</div>
+      <div class="flex items-center gap-1"><span class="text-base">💨</span>${windDir} ${windScale}级 ${windSpeed}km/h</div>
       <div class="flex items-center gap-1"><span class="text-base">👁️</span>${ctx ? ctx.visibilityKm : '?'}km</div>
     </div>
     <div class="inline-flex items-center gap-1 text-sm text-slate-500 cursor-pointer hover:text-slate-300" id="hourly-toggle">
@@ -975,12 +1090,12 @@ function renderMetricsGrid(ctx, weatherNow, moonInfo) {
   const vis = CalcEngine.getVisibilityRating(ctx.visibilityKm);
 
   const cellData = [
-    { icon:'🔥', val:`${ctx.sunsetGlow}%`, label:'今晚晚霞', sub:ssLabel, tip:'基于云量(35%)、湿度(20%)、风速(15%)、降水(15%)、气压(10%)、季节(5%) 6维度加权。25-65%云量最佳，雨后天晴是霞光最佳窗口。', hi:ctx.sunsetGlow>=70, cls: ctx.sunsetGlow>=70 ? 'bg-amber-900/25 ring-1 ring-amber-500/50' : 'bg-slate-800/50', vCls: ctx.sunsetGlow>=70 ? 'text-golden' : ctx.sunsetGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
-    { icon:'🌅', val:`${ctx.sunriseGlow}%`, label:'明晨朝霞', sub:srLabel, tip:'清晨湿度通常更高，霞光颜色偏粉红；傍晚云层更活跃，颜色偏橙红。两者基于同一6维度模型独立计算。', hi:ctx.sunriseGlow>=70, cls: ctx.sunriseGlow>=70 ? 'bg-amber-900/25 ring-1 ring-amber-500/50' : 'bg-slate-800/50', vCls: ctx.sunriseGlow>=70 ? 'text-golden' : ctx.sunriseGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
-    { icon:'👁️', val:`${ctx.visibilityKm} km`, label:'能见度', sub:vis.level, tip:`${vis.desc}。数值由天气文字、湿度、云量、风速、气压交叉估算得出。`, hi:ctx.visibilityKm>=15, cls:'bg-slate-800/50', vCls: vis.color },
+    { icon:'🔥', val:`${ctx.sunsetGlow}%`, label:'今晚晚霞', sub:ssLabel, tip:'7维度加权：云量(30%)、降水(18%)、湿度(16%)、风速(12%)、气压(9%)、大气洁净度(8%)、季节(7%)。云量20-70%且分布有变化为佳，露点差大则散射纯正。', hi:ctx.sunsetGlow>=70, cls: ctx.sunsetGlow>=70 ? 'bg-amber-900/25 ring-1 ring-amber-500/50' : 'bg-slate-800/50', vCls: ctx.sunsetGlow>=70 ? 'text-golden' : ctx.sunsetGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
+    { icon:'🌅', val:`${ctx.sunriseGlow}%`, label:'明晨朝霞', sub:srLabel, tip:'朝霞湿度通常更高，颜色偏粉红；晚霞云层更活跃，颜色偏橙红。两者基于同一7维度模型独立计算，朝霞参考当天凌晨逐小时数据。', hi:ctx.sunriseGlow>=70, cls: ctx.sunriseGlow>=70 ? 'bg-amber-900/25 ring-1 ring-amber-500/50' : 'bg-slate-800/50', vCls: ctx.sunriseGlow>=70 ? 'text-golden' : ctx.sunriseGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
+    { icon:'👁️', val:`${ctx.visibilityKm} km`, label:'能见度', sub:vis.level, tip:`${vis.desc}。优先使用API实测值，无数据时由天气文字+露点差+湿度+云量+风速+气压6因子交叉估算。`, hi:ctx.visibilityKm>=15, cls:'bg-slate-800/50', vCls: vis.color },
     { icon:moonInfo?moonInfo.icon:'🌓', val:`${moonInfo?moonInfo.illumination:'?'}%`, label:moonInfo?moonInfo.name:'月相', sub:moonInfo?moonInfo.starTip:'', tip:'月照亮度越低星空越清晰。新月前后是银河/星轨最佳窗口，满月适合月光地景拍摄。', hi:false, cls:'bg-slate-800/50', vCls:'text-slate-200' },
     { icon:'💨', val:`${windScale}级`, label:`${windDir} ${windSpeed}km/h`, sub:windSpeed<5?'静风':windSpeed<15?'微风':windSpeed<25?'和风':'大风', tip:'微风(5-15km/h)最利于稳定云层，适合长曝光和延时。静风时水面如镜适合倒影，大风易造成相机晃动。', hi:false, cls:'bg-slate-800/50', vCls: windSpeed<15?'text-emerald-400':'text-amber-400' },
-    { icon:'💧', val:`${ctx.humidity}%`, label:'相对湿度', sub:ctx.humidity>=40&&ctx.humidity<=65?'适中':ctx.humidity<30?'干燥':'湿润', tip:'40-65%形成最佳气溶胶散射，霞光颜色更浓郁。>80%雾感增加适合氛围创作，<30%空气清澈但霞光偏淡。', hi:false, cls:'bg-slate-800/50', vCls: ctx.humidity>=40&&ctx.humidity<=65?'text-emerald-400':ctx.humidity<30?'text-amber-400':'text-blue-400' }
+    { icon:'💧', val:`${ctx.humidity}%`, label: ctx.dewPoint != null ? `RH · 露点 ${ctx.dewPoint}°` : '相对湿度', sub:ctx.humidity>=40&&ctx.humidity<=65?'气溶胶最佳':ctx.humidity<30?'空气干燥':'偏高', tip: ctx.dewPoint != null ? `露点 ${ctx.dewPoint}°C，露点差 ${(ctx.temp - ctx.dewPoint).toFixed(1)}°C。露点差<2°C有雾风险，>8°C空气干爽清澈。40-65%湿度形成最佳气溶胶散射层。` : '40-65%形成最佳气溶胶散射，霞光颜色更浓郁。>80%雾感增加适合氛围创作，<30%空气清澈但霞光偏淡。', hi:false, cls:'bg-slate-800/50', vCls: ctx.humidity>=40&&ctx.humidity<=65?'text-emerald-400':ctx.humidity<30?'text-amber-400':'text-blue-400' }
   ];
 
   card.innerHTML = `<div class="grid grid-cols-2 gap-3">${cellData.map(c => `
@@ -1505,6 +1620,8 @@ const App = {
     const text = (weatherNow.text || '').toLowerCase();
     const precip = parseFloat(weatherNow.precip) || 0;
     const temp = parseInt(weatherNow.temp) || 15;
+    const dewRaw = parseFloat(weatherNow.dew);
+    const dewPoint = !isNaN(dewRaw) ? dewRaw : null;
 
     const isPostRain = (text.includes('晴') || text.includes('多云')) && precip === 0 && !text.includes('雨');
     const isStorm = text.includes('雷') || text.includes('暴');
@@ -1536,6 +1653,7 @@ const App = {
       isAutumn,
       tempDiff,
       temp,
+      dewPoint,
       moonIllum: moonInfo ? moonInfo.illumination : 50,
       weatherText: weatherNow.text || ''
     };
