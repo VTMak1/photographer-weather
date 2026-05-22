@@ -595,9 +595,11 @@ const CalcEngine = {
     const p = phases[0];
     const illum = parseFloat(p.illumination) || 50;
     const icon = illum >= 90 ? '🌕' : illum >= 60 ? '🌔' : illum >= 30 ? '🌓' : illum >= 10 ? '🌒' : '🌑';
-    const name = illum >= 90 ? '满月' : illum >= 60 ? '盈凸月' : illum >= 30 ? '上/下弦月' : illum >= 5 ? '蛾眉月' : '新月';
-    const starTip = illum < 20 ? '月暗星明，星轨/银河最佳' : illum < 60 ? '月光适中，可兼顾地景' : '月光太亮，星空不理想';
-    return { icon, name, illumination: Math.round(illum), moonrise: p.moonrise || '', moonset: p.moonset || '', starTip };
+    const name = p.name || (illum >= 90 ? '满月' : illum >= 60 ? '盈凸月' : illum >= 30 ? '上/下弦月' : illum >= 5 ? '蛾眉月' : '新月');
+    const starTip = illum < 20 ? '月暗星明，星轨银河最佳' : illum < 60 ? '月光适中，可兼顾地景' : '月光太亮，银河不理想';
+    const moonrise = moonData.moonRise || p.moonrise || '';
+    const moonset = moonData.moonSet || p.moonset || '';
+    return { icon, name, illumination: Math.round(illum), moonrise, moonset, starTip };
   },
 
   // 综合摄影指数 (0-100)
