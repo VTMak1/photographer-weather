@@ -557,7 +557,22 @@ const Meteo = {
     return { spread, fogRisk: 'none', visFactor: +1, desc: '露点差大，空气清澈' };
   },
 
-  // 体感综合：高温用热指数，低温用风寒，舒适用实际温度
+  // 水汽压计算（Magnus 公式）
+  vaporPressure(tempC, humidity) {
+    const es = 6.112 * Math.exp(17.67 * tempC / (tempC + 243.5));  // 饱和水汽压 hPa
+    return es * humidity / 100;  // 实际水汽压 hPa
+  },
+
+  // Steadman 体感温度（澳大利亚气象局通用公式）
+  // AT = T + 0.348×e − 0.7×V − 4.25
+  steadmanAT(tempC, humidity, windKmh) {
+    const e = this.vaporPressure(tempC, humidity);    // 水汽压 hPa
+    const V = windKmh / 3.6;                           // 风速 km/h → m/s
+    const AT = tempC + 0.348 * e - 0.7 * V - 4.25;
+    return Math.round(AT * 10) / 10;                   // 保留 1 位小数
+  },
+
+  // 体感综合：Steadman 为基础，极端情况用专项公式
   apparentTemp(tempC, humidity, windKmh, dewPointC) {
     if (tempC >= 27 && humidity >= 40) {
       return this.heatIndex(tempC, humidity);
@@ -565,11 +580,10 @@ const Meteo = {
     if (tempC <= 10 && windKmh >= 4.8) {
       return this.windChill(tempC, windKmh);
     }
-    // 常温高湿用 Humidex
     if (tempC >= 20 && dewPointC != null && humidity >= 60) {
       return this.humidex(tempC, dewPointC);
     }
-    return tempC;
+    return this.steadmanAT(tempC, humidity, windKmh);
   }
 };
 
@@ -955,23 +969,12 @@ function renderWeatherHero(data, ctx) {
   const dewRaw = parseFloat(data.dew);
   const dewPoint = !isNaN(dewRaw) ? dewRaw : null;
 
-  // 标准气象公式计算体感（用于验证 API 值）
-  const meteoFeel = Meteo.apparentTemp(temp, humidity, windSpeed, dewPoint);
+  // Steadman 体感公式：AT = T + 0.348×e − 0.7×V − 4.25
+  const steadmanAT = Meteo.steadmanAT(temp, humidity, windSpeed);
   const apiFeel = parseInt(data.feelsLike) || temp;
-
-  // 当 API 值与标准公式偏差较大时显示对照
-  let feelNote = '';
-  if (temp >= 30 && humidity >= 60) {
-    const hi = Meteo.heatIndex(temp, humidity);
-    if (Math.abs(hi - apiFeel) >= 2) {
-      feelNote = `热指数 ${hi}°`;
-    }
-  } else if (temp <= 5 && windSpeed >= 10) {
-    const wc = Meteo.windChill(temp, windSpeed);
-    if (Math.abs(wc - apiFeel) >= 2) {
-      feelNote = `风寒 ${wc}°`;
-    }
-  }
+  // 公式与 API 偏差 >2°C 时标注
+  const feelDiff = Math.abs(steadmanAT - apiFeel);
+  const feelNote = feelDiff >= 2 ? `偏差 ${feelDiff.toFixed(1)}°` : '';
 
   // 动态背景
   let bgGradient;
@@ -990,10 +993,11 @@ function renderWeatherHero(data, ctx) {
         <div class="text-sm text-slate-400 mt-0.5">${data.text}</div>
       </div>
     </div>
-    <div class="inline-flex items-center gap-1 text-sm font-medium px-3 py-1 rounded-full mb-3" style="background:${temp>=28?'rgba(251,146,60,0.15)':'rgba(148,163,184,0.1)'}">
+    <div class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full mb-3" style="background:${temp>=28?'rgba(251,146,60,0.15)':'rgba(148,163,184,0.1)'}">
       <span class="text-slate-400">体感</span>
-      <span class="text-slate-100">${apiFeel}°</span>
-      ${feelNote ? `<span class="text-xs text-amber-400 ml-1">（${feelNote}）</span>` : ''}
+      <span class="text-slate-100 font-bold">${steadmanAT}°</span>
+      <span class="text-slate-500 text-xs">· API ${apiFeel}°</span>
+      ${feelNote ? `<span class="text-xs text-amber-400">⚠ ${feelNote}</span>` : ''}
     </div>
     <div class="flex justify-center gap-5 text-xs text-slate-500 mb-4">
       <div class="flex items-center gap-1"><span class="text-base">💧</span>${humidity}%</div>
