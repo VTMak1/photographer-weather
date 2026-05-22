@@ -70,11 +70,18 @@ tailwind.config = {
     border-bottom: 1px solid #1e293b;
   }
   .card-enter {
-    animation: cardSlideUp 0.4s ease-out both;
+    animation: cardSlideUp 0.45s ease-out both;
   }
   @keyframes cardSlideUp {
-    from { opacity: 0; transform: translateY(20px); }
+    from { opacity: 0; transform: translateY(18px); }
     to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pageFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  body {
+    animation: pageFadeIn 0.5s ease-out;
   }
   #city-sheet {
     transform: translateY(100%);
@@ -773,11 +780,7 @@ function renderPhotoGauge(photoIndex) {
   card.className = 'photographer-card card-accent-top golden card-enter text-center py-6';
   const angle = Math.max(-180, Math.min(0, -180 + (photoIndex.total / 100) * 180));
   const detailText = photoIndex.scores.map(s => `${s.name}:${Math.round(s.score)}分`).join('，');
-  const badgeIcon = photoIndex.total >= 75 ? 'check-circle' : photoIndex.total >= 50 ? 'minus-circle' : 'exclamation-circle';
-  // 改进建议 Toast
-  const improveTip = photoIndex.total < 75
-    ? `摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}\n${photoIndex.improvement}\n点击各指标卡片查看详细分析`
-    : `摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`;
+  const badgeIcon = photoIndex.total >= 75 ? 'check-circle' : photoIndex.total >= 50 ? 'minus-circle' : 'info-circle';
 
   card.innerHTML = `
     <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">综合摄影指数 <span class="text-slate-600">/100</span></div>
@@ -786,15 +789,32 @@ function renderPhotoGauge(photoIndex) {
         <div style="width:4px;height:50px;background:#e2e8f0;border-radius:2px;position:absolute;bottom:0;left:50%;transform-origin:bottom center;transform:translateX(-50%) rotate(${angle}deg);"></div>
       </div>
     </div>
-    <div class="text-6xl font-bold text-slate-100 -mt-8 mb-1 cursor-pointer select-none" onclick="App.showToast('${detailText}')">${photoIndex.total}</div>
-    <div class="inline-flex items-center gap-1 px-4 py-1 rounded-full text-sm font-bold mb-3 cursor-pointer" style="background:${photoIndex.color}20;color:${photoIndex.color}" onclick="App.showToast('${improveTip.replace(/'/g,"\\'")}')">
+    <div class="text-6xl font-bold text-slate-100 -mt-8 mb-1 cursor-pointer select-none" data-gauge-detail="${detailText}">${photoIndex.total}</div>
+    <div class="inline-flex items-center gap-1 px-4 py-1 rounded-full text-sm font-bold mb-3 cursor-pointer hover:opacity-80 transition" style="background:${photoIndex.color}20;color:${photoIndex.color}" data-gauge-tip="${photoIndex.improvement || ''}">
       <i class="fa fa-${badgeIcon} mr-1"></i>${photoIndex.label} <i class="fa fa-info-circle text-xs ml-0.5"></i>
     </div>
     <p class="text-sm text-slate-400" id="gauge-summary"></p>
-    <div class="grid grid-cols-4 gap-1 mt-4 pt-4 border-t border-slate-700/50 text-xs text-slate-500 cursor-pointer" onclick="App.showToast('${detailText}')">
+    <div class="grid grid-cols-4 gap-1 mt-4 pt-4 border-t border-slate-700/50 text-xs text-slate-500 cursor-pointer" data-gauge-detail="${detailText}">
       ${photoIndex.scores.slice(0,4).map(s => `<div>${s.name}<div class="text-slate-300 font-bold">${Math.round(s.score)}</div></div>`).join('')}
     </div>
   `;
+
+  // 事件委托：点击分数或底部指标显示详细分数
+  card.querySelectorAll('[data-gauge-detail]').forEach(el => {
+    el.addEventListener('click', () => App.showToast(el.dataset.gaugeDetail));
+  });
+  // 徽章点击显示改进建议
+  const tipEl = card.querySelector('[data-gauge-tip]');
+  if (tipEl) {
+    tipEl.addEventListener('click', () => {
+      const tip = tipEl.dataset.gaugeTip;
+      if (tip) {
+        App.showToast(`改善方向\n${tip}`);
+      } else {
+        App.showToast(`摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`);
+      }
+    });
+  }
 }
 
 function renderMetricsGrid(ctx, weatherNow, moonInfo) {
@@ -884,7 +904,6 @@ function renderRecommendCard(recommendations) {
   const card = document.getElementById('card-recommend');
   card.className = 'photographer-card card-accent-top green card-enter';
   const best = recommendations[0];
-  const maxScore = Math.round(_allScoredThemes[0]?.points || 100);
   const stars = '★'.repeat(Math.min(5, Math.round(best.points / 20))) + '☆'.repeat(Math.max(0, 5 - Math.round(best.points / 20)));
 
   card.innerHTML = `
@@ -900,7 +919,7 @@ function renderRecommendCard(recommendations) {
       <div class="text-4xl mb-2"><i class="fa fa-${best.icon} text-emerald-400"></i></div>
       <div class="text-xl font-bold text-slate-100 mb-1">${best.name}</div>
       <div class="text-golden text-lg mb-1">${stars}</div>
-      <div class="text-xs text-slate-500 mb-2">${Math.round(best.points)} 分 <span class="text-slate-600">/ ${maxScore}</span></div>
+      <div class="text-xs text-slate-500 mb-2">${Math.round(best.points)} 分 <span class="text-slate-600">/ 100</span></div>
       <div class="text-sm text-slate-400">${best.desc || ''}</div>
     </div>
     ${recommendations.length > 1 ? `
