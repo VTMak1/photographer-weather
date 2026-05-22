@@ -26,7 +26,7 @@ tailwind.config = {
 <style>
   :root {
     --bg: #0f172a;
-    --card: rgba(30, 41, 59, 0.65);
+    --card: rgba(30, 41, 59, 0.85);
     --card-border: rgba(51, 65, 85, 0.5);
     --text-primary: #e2e8f0;
     --text-secondary: #94a3b8;
@@ -37,19 +37,19 @@ tailwind.config = {
   }
   .photographer-card {
     border-radius: 20px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.04) inset;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.3);
     padding: 20px;
     position: relative;
     overflow: hidden;
     background: var(--card);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--card-border);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
   }
   .photographer-card:active {
-    transform: scale(0.98);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    transform: scale(0.98) translateZ(0);
+    box-shadow: 0 1px 6px rgba(0,0,0,0.4);
   }
   .card-accent-top { border-top: 3px solid transparent; }
   .card-accent-top.golden  { border-top-color: var(--accent-golden); }
@@ -88,19 +88,19 @@ tailwind.config = {
   /* 滚动渐入 */
   .reveal-on-scroll {
     opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+    transform: translateY(16px);
+    transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+    will-change: opacity, transform;
   }
   .reveal-on-scroll.visible {
     opacity: 1;
     transform: translateY(0);
+    will-change: auto;
   }
   /* 标签栏 */
   .tab-bar {
     display: flex;
-    background: rgba(30, 41, 59, 0.5);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: rgba(30, 41, 59, 0.6);
     border-radius: 14px;
     padding: 4px;
     gap: 2px;
@@ -1078,7 +1078,7 @@ function renderRecommendCard(recommendations) {
   });
 }
 
-function renderFutureDays(dailyData) {
+function renderFutureDays(dailyData, weatherNow, moonInfo) {
   const card = document.getElementById('card-future');
   if (!dailyData || !dailyData.length) {
     card.innerHTML = '<div class="text-center text-slate-500 py-4">未来预报暂不可用</div>';
@@ -1086,13 +1086,41 @@ function renderFutureDays(dailyData) {
   }
   card.className = 'photographer-card card-accent-top purple card-enter';
   const dayLabels = ['今天', '明天', '后天'];
+  const month = new Date().getMonth() + 1;
+  const currMoonIllum = moonInfo ? moonInfo.illumination : 50;
+
   const items = dailyData.slice(0, 3).map((d, i) => {
     const icon = d.iconDay || '100';
+    const textDay = (d.textDay || '').toLowerCase();
+    const vis = parseFloat(d.vis);
+    const visibilityKm = (!isNaN(vis) && vis > 0 && vis < 50) ? Math.round(vis) : CalcEngine.estimateVisibility(
+      { text: d.textDay, humidity: d.humidity, cloud: d.cloud, windSpeed: d.windSpeedDay, pressure: d.pressure }, null
+    );
+    const cloudCover = parseInt(d.cloud) || 50;
+    const humidity = parseInt(d.humidity) || 50;
+    const windSpeed = parseInt(d.windSpeedDay) || 0;
+    const temp = parseInt(d.tempMax) || 20;
+    const isPostRain = (textDay.includes('晴') || textDay.includes('多云')) && !textDay.includes('雨');
+    const isAutumn = month >= 9 && month <= 11;
+    const isMorning = true; // 日间指数
+
+    // 用3d数据估算霞光概率
+    const cloudScore = (cloudCover >= 20 && cloudCover <= 70) ? 90 : (cloudCover >= 10 && cloudCover <= 85) ? 55 : 20;
+    const humScore = (humidity >= 35 && humidity <= 65) ? 90 : (humidity >= 25 && humidity <= 80) ? 65 : 30;
+    const glowEst = Math.round(cloudScore * 0.4 + humScore * 0.25 + (isPostRain ? 25 : 0) + (isAutumn ? 10 : 0));
+
     const idx = CalcEngine.getPhotoIndex({
-      visibilityKm: 12, sunriseGlow: 50, sunsetGlow: 50,
-      cloudCover: parseInt(d.cloud) || 50, humidity: parseInt(d.humidity) || 50,
-      windSpeed: parseInt(d.windSpeedDay) || 0, temp: parseInt(d.tempMax) || 20,
-      isAutumn: false, isPostRain: false, isMorning: true, moonIllum: 50
+      visibilityKm,
+      sunriseGlow: glowEst,
+      sunsetGlow: glowEst,
+      cloudCover,
+      humidity,
+      windSpeed,
+      temp,
+      isAutumn,
+      isPostRain,
+      isMorning,
+      moonIllum: currMoonIllum
     });
     const idxColor = idx.total >= 75 ? 'bg-emerald-400/10 ring-emerald-400/50' : idx.total >= 50 ? 'bg-amber-400/10 ring-amber-400/50' : 'bg-slate-800/50';
     const idxTextColor = idx.total >= 75 ? 'text-emerald-400' : idx.total >= 50 ? 'text-golden' : 'text-slate-400';
@@ -1116,7 +1144,7 @@ function renderFutureDays(dailyData) {
       <span class="text-xs text-slate-600">摄影指数 /100</span>
     </div>
     <div class="grid grid-cols-3 gap-2">${items}</div>
-    <div class="text-xs text-slate-600 text-center mt-3">* 指数为简化推算，仅供参考</div>
+    <div class="text-xs text-slate-600 text-center mt-3">* 基于3日预报数据推算，仅供参考</div>
   `;
 }
 
@@ -1423,7 +1451,7 @@ const App = {
     renderMetricsGrid(ctx, weatherNow, moonInfo);
     renderRecommendCard(recs);
     renderLightTimeline(sunData || {});
-    renderFutureDays(dailyData);
+    renderFutureDays(dailyData, weatherNow, moonInfo);
     renderWarningBanner(allWarnings);
 
     document.getElementById('weather-update-time').textContent =
