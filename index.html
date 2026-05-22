@@ -337,7 +337,7 @@ tailwind.config = {
 </header>
 
 <!-- 主内容区 -->
-<main id="main-content" class="pt-16 pb-20 px-4 max-w-lg mx-auto space-y-3">
+<main id="main-content" class="pt-14 pb-20 px-4 max-w-lg mx-auto space-y-3">
   <!-- 下拉刷新指示器 -->
   <div id="pull-indicator" class="text-center text-xs text-slate-500 py-2 opacity-0 transition-opacity duration-200">
     <i class="fa fa-arrow-down"></i> 下拉刷新
@@ -417,6 +417,12 @@ tailwind.config = {
       <div id="favorites-list" class="space-y-1"></div>
     </div>
   </div>
+</div>
+
+<!-- 分数说明浮层（可点击任意位置关闭） -->
+<div id="detail-overlay" class="fixed inset-0 z-[65] flex items-center justify-center p-6 opacity-0 pointer-events-none transition-opacity duration-300">
+  <div class="absolute inset-0 bg-black/70" id="detail-backdrop"></div>
+  <div class="relative bg-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-700 text-sm text-slate-300 leading-relaxed whitespace-pre-line transform transition-transform duration-300 scale-95" id="detail-card"></div>
 </div>
 
 <!-- Toast 轻提示 -->
@@ -1264,7 +1270,7 @@ function renderPhotoGauge(photoIndex, sunData) {
   `;
 
   card.querySelectorAll('[data-gauge-detail]').forEach(el => {
-    el.addEventListener('click', () => App.showToast(el.dataset.gaugeDetail));
+    el.addEventListener('click', () => App.showDetail(el.dataset.gaugeDetail));
   });
   const tipEl = card.querySelector('[data-gauge-tip]');
   if (tipEl) {
@@ -1335,11 +1341,11 @@ function renderLightTimeline(sunData) {
   card.className = 'photographer-card card-accent-top blue card-enter collapsible-section';
   card.innerHTML = `
     <div class="collapsible-header mb-3">
-      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0">
+      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
         <i class="fa fa-clock-o text-blue-hour text-xl flex-shrink-0"></i>
         <span class="font-bold text-slate-100 text-lg">光影时间线</span>
+        <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0 ml-auto"></i>
       </div>
-      <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0"></i>
     </div>
     <div class="collapsible-body">
     <div class="relative pt-2 pb-8 mb-4">
@@ -1379,14 +1385,14 @@ function renderRecommendCard(recommendations) {
 
   card.innerHTML = `
     <div class="collapsible-header mb-3">
-      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0">
+      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
         <i class="fa fa-camera text-emerald-400 text-xl flex-shrink-0"></i>
         <span class="font-bold text-slate-100 text-lg truncate">今日适合拍摄 <span class="text-xs text-slate-600 font-normal">/100</span></span>
+        <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0 ml-auto"></i>
       </div>
-      <button id="btn-all-themes" class="text-xs text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full hover:bg-emerald-400/20 transition touch-target flex-shrink-0 mr-2" onclick="event.stopPropagation()">
+      <button id="btn-all-themes" class="text-xs text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full hover:bg-emerald-400/20 transition touch-target flex-shrink-0 ml-2" onclick="event.stopPropagation()">
         查看全部 <i class="fa fa-chevron-down"></i>
       </button>
-      <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0"></i>
     </div>
     <div class="collapsible-body">
     <div class="bg-gradient-to-br from-emerald-900/30 to-teal-900/20 rounded-2xl p-5 text-center mb-3 border border-emerald-500/10">
@@ -1488,11 +1494,11 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
       isMorning,
       moonIllum: currMoonIllum
     });
-    const idxColor = idx.total >= 75 ? 'bg-emerald-400/10 ring-emerald-400/50' : idx.total >= 50 ? 'bg-amber-400/10 ring-amber-400/50' : 'bg-slate-800/50';
+    const idxColor = idx.total >= 75 ? 'bg-emerald-400/10 border-emerald-400/50' : idx.total >= 50 ? 'bg-amber-400/10 border-amber-400/50' : 'bg-slate-800/50';
     const idxTextColor = idx.total >= 75 ? 'text-emerald-400' : idx.total >= 50 ? 'text-golden' : 'text-slate-400';
     const idxLabel = idx.total >= 75 ? '适宜' : idx.total >= 50 ? '一般' : '不宜';
     const idxBg = idx.total >= 75 ? 'bg-emerald-400/20' : idx.total >= 50 ? 'bg-amber-400/20' : 'bg-slate-700/30';
-    return `<div class="text-center p-3 rounded-2xl ${i===0 ? idxColor + ' ring-2' : 'bg-slate-800/50'}">
+    return `<div class="text-center p-3 rounded-2xl ${i===0 ? idxColor + ' border-2' : 'bg-slate-800/50'}">
       <div class="text-xs text-slate-500 mb-1">${dayLabels[i]}</div>
       <div class="text-xl mb-1">${getWeatherEmoji(icon)}</div>
       <div class="font-bold text-slate-200 text-sm">${d.tempMax}°/${d.tempMin}°</div>
@@ -1505,11 +1511,11 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
 
   card.innerHTML = `
     <div class="collapsible-header mb-3">
-      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0">
+      <div class="collapsible-trigger flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
         <i class="fa fa-calendar text-blue-hour text-xl flex-shrink-0"></i>
         <span class="font-bold text-slate-100 text-lg">未来天气 <span class="text-xs text-slate-600 font-normal">摄影指数 /100</span></span>
+        <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0 ml-auto"></i>
       </div>
-      <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0"></i>
     </div>
     <div class="collapsible-body">
       <div class="grid grid-cols-3 gap-2">${items}</div>
@@ -1749,6 +1755,33 @@ const App = {
     el.style.opacity = '1';
     clearTimeout(this._toastTimer);
     this._toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+  },
+
+  showDetail(msg) {
+    const overlay = document.getElementById('detail-overlay');
+    const card = document.getElementById('detail-card');
+    card.textContent = msg;
+    overlay.classList.remove('pointer-events-none');
+    overlay.classList.add('pointer-events-auto');
+    // 强制回流后添加动画
+    void overlay.offsetWidth;
+    overlay.classList.remove('opacity-0');
+    overlay.classList.add('opacity-100');
+    card.classList.remove('scale-95');
+    card.classList.add('scale-100');
+    // 点击背景关闭
+    document.getElementById('detail-backdrop').onclick = () => this.hideDetail();
+  },
+
+  hideDetail() {
+    const overlay = document.getElementById('detail-overlay');
+    const card = document.getElementById('detail-card');
+    overlay.classList.remove('opacity-100');
+    overlay.classList.add('opacity-0');
+    card.classList.remove('scale-100');
+    card.classList.add('scale-95');
+    overlay.classList.add('pointer-events-none');
+    overlay.classList.remove('pointer-events-auto');
   },
 
   initPullToRefresh() {
