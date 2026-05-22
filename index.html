@@ -24,10 +24,52 @@ tailwind.config = {
 }
 </script>
 <style>
+  /* 天色感知系统 — 默认值（会被 body[data-sky] 覆盖） */
+  body {
+    --sky-top: #0f172a;
+    --sky-bottom: #0f172a;
+    --sky-glow: transparent;
+    --card-bg: rgba(30, 41, 59, 0.85);
+    --card-border: rgba(51, 65, 85, 0.5);
+  }
+  body[data-sky="golden"] {
+    --sky-top: #1a1408;
+    --sky-bottom: #0f172a;
+    --sky-glow: rgba(245, 158, 11, 0.13);
+    --card-bg: rgba(30, 25, 15, 0.88);
+    --card-border: rgba(245, 158, 11, 0.13);
+  }
+  body[data-sky="blue"] {
+    --sky-top: #080c1a;
+    --sky-bottom: #0f172a;
+    --sky-glow: rgba(129, 140, 248, 0.11);
+    --card-bg: rgba(25, 25, 40, 0.88);
+    --card-border: rgba(129, 140, 248, 0.13);
+  }
+  body[data-sky="clear"] {
+    --sky-top: #0a141e;
+    --sky-bottom: #0f172a;
+    --sky-glow: rgba(56, 189, 248, 0.09);
+    --card-bg: rgba(22, 28, 38, 0.88);
+    --card-border: rgba(56, 189, 248, 0.11);
+  }
+  body[data-sky="overcast"] {
+    --sky-top: #121216;
+    --sky-bottom: #0f172a;
+    --sky-glow: rgba(148, 163, 184, 0.06);
+    --card-bg: rgba(28, 28, 33, 0.88);
+    --card-border: rgba(148, 163, 184, 0.10);
+  }
+  body[data-sky="rain"] {
+    --sky-top: #0a0f14;
+    --sky-bottom: #0f172a;
+    --sky-glow: rgba(100, 116, 139, 0.07);
+    --card-bg: rgba(22, 26, 31, 0.88);
+    --card-border: rgba(100, 116, 139, 0.11);
+  }
+  /* 保留旧变量兼容 */
   :root {
     --bg: #0f172a;
-    --card: rgba(30, 41, 59, 0.85);
-    --card-border: rgba(51, 65, 85, 0.5);
     --text-primary: #e2e8f0;
     --text-secondary: #94a3b8;
     --text-muted: #64748b;
@@ -35,17 +77,107 @@ tailwind.config = {
     --accent-blue: #818cf8;
     --accent-green: #34d399;
   }
+  /* 天空画布 */
+  #sky-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 45vh;
+    pointer-events: none;
+    z-index: 0;
+    background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 100%);
+    transition: background 0.8s ease;
+  }
+  #sky-canvas::after {
+    content: '';
+    position: absolute;
+    top: 6%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 75vw;
+    height: 32vh;
+    background: radial-gradient(ellipse at 50% 0%, var(--sky-glow) 0%, transparent 70%);
+    transition: background 0.8s ease;
+  }
+  /* 仪表盘 Hero 数字 */
+  .gauge-hero-score {
+    font-size: 96px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    background: linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0.65) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 30px var(--sky-glow));
+  }
+  /* 光圈环 */
+  .aperture-ring {
+    width: 200px; height: 100px;
+    border-radius: 200px 200px 0 0;
+    margin: 0 auto;
+    background: conic-gradient(
+      from 180deg,
+      #34d399 0deg,
+      #F59E0B calc(var(--score-angle, 90deg) * 0.5),
+      #334155 var(--score-angle, 90deg)
+    );
+    mask: radial-gradient(circle at 50% 100%, transparent 56%, black 58%);
+    -webkit-mask: radial-gradient(circle at 50% 100%, transparent 56%, black 58%);
+  }
+  /* 光圈叶片刻度 */
+  .aperture-ring-inner {
+    position: relative;
+  }
+  .aperture-tick {
+    position: absolute;
+    width: 1px; height: 6px;
+    background: rgba(148,163,184,0.4);
+    top: 0; left: 50%;
+    transform-origin: bottom center;
+  }
+  /* 霞光高概率呼吸光晕 */
+  @keyframes glowPulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(245, 158, 11, 0.2); }
+    50%      { box-shadow: 0 0 20px rgba(245, 158, 11, 0.45); }
+  }
+  .glow-pulse {
+    animation: glowPulse 2.5s ease-in-out infinite;
+  }
+  /* 分数弹性入场 */
+  @keyframes scoreSpring {
+    0%   { transform: scale(0.3); opacity: 0; }
+    60%  { transform: scale(1.06); }
+    80%  { transform: scale(0.96); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .gauge-hero-score {
+    animation: scoreSpring 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  /* 光圈环弹性入场 */
+  @keyframes ringReveal {
+    0%   { opacity: 0; transform: scaleY(0.6); }
+    100% { opacity: 1; transform: scaleY(1); }
+  }
+  .aperture-ring {
+    animation: ringReveal 0.5s 0.15s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
   .photographer-card {
     border-radius: 20px;
     box-shadow: 0 2px 16px rgba(0,0,0,0.3);
     padding: 20px;
     position: relative;
     overflow: hidden;
-    background: var(--card);
+    background: var(--card-bg);
     border: 1px solid var(--card-border);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.8s ease, border-color 0.8s ease;
     transform: translateZ(0);
     -webkit-transform: translateZ(0);
+    font-variant-numeric: tabular-nums;
+  }
+  body {
+    font-variant-numeric: tabular-nums;
   }
   .photographer-card:active {
     transform: scale(0.98) translateZ(0);
@@ -66,10 +198,10 @@ tailwind.config = {
     100% { background-position: -200% 0; }
   }
   .glass {
-    background: rgba(15, 23, 42, 0.75);
+    background: rgba(15, 23, 42, 0.45);
     backdrop-filter: blur(20px) saturate(1.2);
     -webkit-backdrop-filter: blur(20px) saturate(1.2);
-    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    border-bottom: 1px solid rgba(51, 65, 85, 0.25);
   }
   .card-enter {
     animation: cardSlideUp 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
@@ -97,30 +229,35 @@ tailwind.config = {
     transform: translateY(0);
     will-change: auto;
   }
-  /* 标签栏 */
-  .tab-bar {
+  /* 可折叠面板 */
+  .collapsible-header {
     display: flex;
-    background: rgba(30, 41, 59, 0.6);
-    border-radius: 14px;
-    padding: 4px;
-    gap: 2px;
-  }
-  .tab-btn {
-    flex: 1;
-    padding: 10px 6px;
-    border-radius: 11px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    transition: all 0.25s ease;
-    text-align: center;
+    align-items: center;
+    gap: 8px;
     cursor: pointer;
-    white-space: nowrap;
+    min-height: 44px;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
-  .tab-btn.active {
-    background: rgba(51, 65, 85, 0.7);
-    color: var(--text-primary);
-    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  .collapsible-chevron {
+    transition: transform 0.3s ease;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .collapsible-section.collapsed .collapsible-chevron {
+    transform: rotate(-180deg);
+  }
+  .collapsible-body {
+    overflow: hidden;
+    transition: max-height 0.35s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.3s ease;
+    max-height: 800px;
+    opacity: 1;
+  }
+  .collapsible-section.collapsed .collapsible-body {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    margin-top: 0;
   }
   #city-sheet {
     transform: translateY(100%);
@@ -154,9 +291,27 @@ tailwind.config = {
     background: rgba(251, 191, 36, 0.08);
     border: 1px solid rgba(251, 191, 36, 0.2);
   }
+  /* 预警天际线光带 */
+  #sky-canvas.warning-glow::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 6px;
+    background: linear-gradient(180deg, rgba(239, 68, 68, 0.5) 0%, transparent 100%);
+    z-index: 1;
+    pointer-events: none;
+    animation: warningPulse 2s ease-in-out infinite;
+  }
+  @keyframes warningPulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+  }
 </style>
 </head>
 <body class="bg-[#0f172a] min-h-screen font-sans antialiased text-slate-200">
+
+<!-- 天空画布 -->
+<div id="sky-canvas"></div>
 
 <!-- 离线/陈旧数据提示 -->
 <div id="stale-banner" class="hidden fixed top-0 inset-x-0 z-50 bg-yellow-900/80 text-yellow-200 text-xs text-center py-1.5"></div>
@@ -182,45 +337,44 @@ tailwind.config = {
 </header>
 
 <!-- 主内容区 -->
-<main id="main-content" class="pt-16 pb-20 px-4 max-w-lg mx-auto space-y-4">
+<main id="main-content" class="pt-16 pb-20 px-4 max-w-lg mx-auto space-y-3">
   <!-- 下拉刷新指示器 -->
   <div id="pull-indicator" class="text-center text-xs text-slate-500 py-2 opacity-0 transition-opacity duration-200">
     <i class="fa fa-arrow-down"></i> 下拉刷新
   </div>
 
-  <!-- 天气概览 Hero -->
-  <section id="card-weather" class="photographer-card card-accent-top golden card-enter" style="animation-delay:0ms">
-    <div class="skeleton h-48 rounded-xl"></div>
+  <!-- 综合摄影指数 Hero（去卡片化，浮在天空背景上） -->
+  <section id="card-gauge" class="relative z-10 text-center py-8 card-enter" style="animation-delay:0ms">
+    <div class="skeleton h-56 rounded-xl mx-4"></div>
   </section>
 
-  <!-- 综合摄影指数仪表盘 -->
-  <section id="card-gauge" class="photographer-card card-accent-top golden card-enter" style="animation-delay:80ms">
-    <div class="skeleton h-48 rounded-xl"></div>
+  <!-- 天气概览（紧凑） -->
+  <section id="card-weather" class="photographer-card card-accent-top golden card-enter" style="animation-delay:60ms">
+    <div class="skeleton h-32 rounded-xl"></div>
   </section>
 
   <!-- 6格指标网格 -->
-  <section id="card-metrics" class="photographer-card card-accent-top purple card-enter" style="animation-delay:160ms">
+  <section id="card-metrics" class="photographer-card card-accent-top purple card-enter" style="animation-delay:120ms">
     <div class="skeleton h-56 rounded-xl"></div>
   </section>
 
-  <!-- 拍摄主题推荐卡片 -->
-  <div class="tab-bar mt-1 reveal-on-scroll" id="tab-bar">
-    <button class="tab-btn active" data-tab="recommend">📸 拍摄推荐</button>
-    <button class="tab-btn" data-tab="light">⏱ 光影时间线</button>
-    <button class="tab-btn" data-tab="future">📅 未来天气</button>
-  </div>
+  <!-- 本周最佳拍摄日 -->
+  <section id="card-best-week" class="photographer-card card-accent-top golden reveal-on-scroll">
+    <div class="skeleton h-28 rounded-xl"></div>
+  </section>
 
-  <section id="card-recommend" class="photographer-card card-accent-top green reveal-on-scroll" style="transition-delay:0ms">
+  <!-- 可折叠：拍摄推荐 -->
+  <section id="card-recommend" class="photographer-card card-accent-top green reveal-on-scroll collapsible-section">
     <div class="skeleton h-44 rounded-xl"></div>
   </section>
 
-  <!-- 光影时间线 -->
-  <section id="card-light" class="photographer-card card-accent-top blue reveal-on-scroll hidden" style="transition-delay:0ms">
+  <!-- 可折叠：光影时间线 -->
+  <section id="card-light" class="photographer-card card-accent-top blue reveal-on-scroll collapsible-section">
     <div class="skeleton h-40 rounded-xl"></div>
   </section>
 
-  <!-- 未来三天 -->
-  <section id="card-future" class="photographer-card card-accent-top purple reveal-on-scroll hidden" style="transition-delay:0ms">
+  <!-- 可折叠：未来天气 -->
+  <section id="card-future" class="photographer-card card-accent-top purple reveal-on-scroll collapsible-section">
     <div class="skeleton h-40 rounded-xl"></div>
   </section>
 
@@ -878,6 +1032,41 @@ function deriveWarnings(weatherNow) {
 }
 
 // ===========================
+// 天色感知 — 根据天气和时段判断天空色调
+// ===========================
+function getSkyType(weatherNow, sunrise, sunset) {
+  const icon = weatherNow ? (weatherNow.icon || '100') : '100';
+  const now = Date.now();
+  const sr = sunrise ? new Date(sunrise).getTime() : 0;
+  const ss = sunset ? new Date(sunset).getTime() : 0;
+
+  // 黄金时刻：日出后40min内 或 日落前40min内
+  if ((sr && now > sr && now < sr + 40*60000) || (ss && now > ss - 40*60000 && now < ss)) {
+    return 'golden';
+  }
+  // 蓝调时刻：日出前40min 或 日落后40min
+  if ((sr && now > sr - 40*60000 && now < sr) || (ss && now > ss && now < ss + 40*60000)) {
+    return 'blue';
+  }
+
+  const text = (weatherNow && weatherNow.text || '').toLowerCase();
+  if (text.includes('雨')) return 'rain';
+  if (text.includes('阴') || text.includes('多云')) return 'overcast';
+  if (icon === '100' || icon === '101') return 'clear';
+  return 'overcast';
+}
+
+// 时间感知霞光标签 — 根据当前时间判断"今"还是"明"
+function getGlowLabels(sunData) {
+  const now = Date.now();
+  const sr = sunData?.sunrise ? new Date(sunData.sunrise).getTime() : 0;
+  const ss = sunData?.sunset ? new Date(sunData.sunset).getTime() : 0;
+  const sunsetLabel = (ss && now > ss) ? '明晚晚霞' : '今晚晚霞';
+  const sunriseLabel = (sr && now > sr) ? '明晨朝霞' : '今晨朝霞';
+  return { sunsetLabel, sunriseLabel };
+}
+
+// ===========================
 // 推荐引擎
 // ===========================
 const RecommendEngine = {
@@ -966,51 +1155,38 @@ function renderWeatherHero(data, ctx) {
   const windScale = data.windScale || '?';
   const windDir = data.windDir || '';
   const windSpeed = parseInt(data.windSpeed) || 0;
-  const dewRaw = parseFloat(data.dew);
-  const dewPoint = !isNaN(dewRaw) ? dewRaw : null;
 
-  // Steadman 体感公式：AT = T + 0.348×e − 0.7×V − 4.25
+  // Steadman 体感
   const steadmanAT = Meteo.steadmanAT(temp, humidity, windSpeed);
   const apiFeel = parseInt(data.feelsLike) || temp;
-  // 公式与 API 偏差 >2°C 时标注
   const feelDiff = Math.abs(steadmanAT - apiFeel);
-  const feelNote = feelDiff >= 2 ? `偏差 ${feelDiff.toFixed(1)}°` : '';
 
-  // 动态背景
-  let bgGradient;
-  if (temp >= 35) bgGradient = 'linear-gradient(135deg, #2d1a1a 0%, #1e1a1a 100%)';
-  else if (temp >= 28) bgGradient = 'linear-gradient(135deg, #2d2415 0%, #1e293b 100%)';
-  else if (temp <= 0) bgGradient = 'linear-gradient(135deg, #1a1f2e 0%, #1e293b 100%)';
-  else bgGradient = 'linear-gradient(135deg, #1e293b 0%, #1a1a2e 100%)';
-
-  card.className = 'photographer-card card-accent-top golden card-enter text-center py-5';
-  card.style.background = bgGradient;
+  card.className = 'photographer-card card-accent-top golden card-enter py-4';
+  card.style.background = '';
   card.innerHTML = `
-    <div class="flex items-center justify-center gap-4 mb-2">
-      <span class="text-5xl">${getWeatherEmoji(iconCode)}</span>
-      <div class="text-left">
-        <div class="text-5xl font-bold text-slate-100 leading-none">${data.temp}°</div>
-        <div class="text-sm text-slate-400 mt-0.5">${data.text}</div>
+    <div class="flex items-center gap-2">
+      <span class="text-3xl">${getWeatherEmoji(iconCode)}</span>
+      <div class="flex items-baseline gap-1">
+        <span class="text-3xl font-bold text-slate-100">${data.temp}°</span>
+        <span class="text-sm text-slate-400">${data.text}</span>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <span class="text-xs text-slate-500">体感 <b class="text-slate-200">${steadmanAT}°</b></span>
+        ${feelDiff >= 2 ? `<span class="text-xs text-amber-400" title="Steadman公式与API偏差${feelDiff.toFixed(1)}°">⚠</span>` : ''}
+        <span id="hourly-toggle" class="text-xs text-slate-600 cursor-pointer hover:text-slate-400 touch-target flex items-center gap-0.5">
+          逐时 <i id="hourly-chevron" class="fa fa-chevron-down text-xs"></i>
+        </span>
       </div>
     </div>
-    <div class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full mb-3" style="background:${temp>=28?'rgba(251,146,60,0.15)':'rgba(148,163,184,0.1)'}">
-      <span class="text-slate-400">体感</span>
-      <span class="text-slate-100 font-bold">${steadmanAT}°</span>
-      <span class="text-slate-500 text-xs">· API ${apiFeel}°</span>
-      ${feelNote ? `<span class="text-xs text-amber-400">⚠ ${feelNote}</span>` : ''}
-    </div>
-    <div class="flex justify-center gap-5 text-xs text-slate-500 mb-4">
-      <div class="flex items-center gap-1"><span class="text-base">💧</span>${humidity}%</div>
-      <div class="flex items-center gap-1"><span class="text-base">💨</span>${windDir} ${windScale}级 ${windSpeed}km/h</div>
-      <div class="flex items-center gap-1"><span class="text-base">👁️</span>${ctx ? ctx.visibilityKm : '?'}km</div>
-    </div>
-    <div class="inline-flex items-center gap-1 text-sm text-slate-500 cursor-pointer hover:text-slate-300" id="hourly-toggle">
-      <i class="fa fa-clock-o"></i> 逐小时预报 <i id="hourly-chevron" class="fa fa-chevron-down text-xs"></i>
+    <div class="flex items-center gap-3 mt-2 text-xs text-slate-500 flex-wrap">
+      <span>💧 ${humidity}%</span>
+      <span>💨 ${windDir}${windScale}级</span>
+      <span>👁️ ${ctx ? ctx.visibilityKm : '?'}km</span>
+      <span class="text-slate-600" id="weather-update-time"></span>
     </div>
     <div id="hourly-panel" class="hidden mt-3 pt-3 border-t border-slate-700/50">
       <div id="hourly-scroll" class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1"></div>
     </div>
-    <div class="text-xs text-slate-600 mt-3" id="weather-update-time"></div>
   `;
   document.getElementById('hourly-toggle').addEventListener('click', () => {
     const panel = document.getElementById('hourly-panel');
@@ -1045,27 +1221,45 @@ function renderHourlyItems() {
   }).join('');
 }
 
-function renderPhotoGauge(photoIndex) {
+function renderPhotoGauge(photoIndex, sunData) {
   const card = document.getElementById('card-gauge');
-  card.className = 'photographer-card card-accent-top golden card-enter text-center py-6';
-  const angle = Math.max(-180, Math.min(0, -180 + (photoIndex.total / 100) * 180));
+  card.className = 'relative z-10 text-center py-8 card-enter';
   const detailText = photoIndex.scores.map(s => `${s.name}:${Math.round(s.score)}分`).join('，');
   const tipMsg = photoIndex.improvement || `摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`;
+  const scoreAngle = photoIndex.total * 1.8; // 0-100 → 0-180deg
+
+  // 黄金时刻倒计时
+  let countdownHTML = '';
+  if (sunData && sunData.sunrise && sunData.sunset) {
+    const cd = CalcEngine.getCountdown(sunData.sunrise, sunData.sunset);
+    const h = Math.floor(cd.ms / 3600000);
+    const m = Math.floor((cd.ms % 3600000) / 60000);
+    if (h >= 0 && m >= 0) {
+      countdownHTML = `<div class="text-sm text-slate-400 mt-1">⏱ 距离<span class="text-slate-200 font-bold">${cd.target}</span>还有 <span class="text-golden font-bold text-lg">${h}</span>h <span class="text-golden font-bold text-lg">${m}</span>min</div>`;
+    }
+  }
 
   card.innerHTML = `
-    <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">综合摄影指数 <span class="text-slate-600">/100</span></div>
-    <div class="relative flex justify-center mb-1">
-      <div class="gauge-ring" style="mask:radial-gradient(circle at 50% 100%, transparent 58%, black 60%);-webkit-mask:radial-gradient(circle at 50% 100%, transparent 58%, black 60%);">
-        <div style="width:4px;height:50px;background:#e2e8f0;border-radius:2px;position:absolute;bottom:0;left:50%;transform-origin:bottom center;transform:translateX(-50%) rotate(${angle}deg);"></div>
-      </div>
-    </div>
-    <div class="text-6xl font-bold text-slate-100 -mt-8 mb-1 cursor-pointer select-none" data-gauge-detail="${detailText}">${photoIndex.total}</div>
-    <div class="inline-flex px-5 py-1.5 rounded-full text-sm font-bold mb-3 cursor-pointer hover:opacity-80 transition" style="background:${photoIndex.color}20;color:${photoIndex.color}" data-gauge-tip="${tipMsg.replace(/"/g,'&quot;')}">
+    <div class="text-xs text-slate-500 uppercase tracking-widest mb-3">综合摄影指数</div>
+    <div class="aperture-ring mb-1" style="--score-angle:${scoreAngle}deg"></div>
+    <div class="gauge-hero-score cursor-pointer select-none -mt-12 mb-2" data-gauge-detail="${detailText}">${photoIndex.total}</div>
+    <div class="inline-flex px-5 py-1.5 rounded-full text-sm font-bold cursor-pointer hover:opacity-80 transition backdrop-blur-sm"
+         style="background:${photoIndex.color}18;color:${photoIndex.color};border:1px solid ${photoIndex.color}30"
+         data-gauge-tip="${tipMsg.replace(/"/g,'&quot;')}">
       ${photoIndex.label}
     </div>
-    <p class="text-sm text-slate-400" id="gauge-summary"></p>
-    <div class="grid grid-cols-4 gap-1 mt-4 pt-4 border-t border-slate-700/50 text-xs text-slate-500 cursor-pointer" data-gauge-detail="${detailText}">
-      ${photoIndex.scores.slice(0,4).map(s => `<div>${s.name}<div class="text-slate-300 font-bold">${Math.round(s.score)}</div></div>`).join('')}
+    ${countdownHTML}
+    <p class="text-sm text-slate-400 mt-2" id="gauge-summary"></p>
+    <div class="flex justify-center flex-wrap gap-2 mt-4 text-xs text-slate-500 cursor-pointer" data-gauge-detail="${detailText}">
+      ${photoIndex.scores.slice(0,4).map(s => {
+        const barW = Math.min(100, s.score);
+        const barC = barW >= 70 ? 'bg-emerald-400' : barW >= 50 ? 'bg-amber-400' : 'bg-slate-500';
+        return `<div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/5 border border-white/5">
+          <span class="text-slate-400">${s.name}</span>
+          <span class="text-slate-200 font-bold">${Math.round(s.score)}</span>
+          <div class="w-8 h-1 bg-slate-700 rounded-full overflow-hidden"><div class="h-full ${barC} rounded-full" style="width:${barW}%"></div></div>
+        </div>`;
+      }).join('')}
     </div>
   `;
 
@@ -1080,29 +1274,36 @@ function renderPhotoGauge(photoIndex) {
   }
 }
 
-function renderMetricsGrid(ctx, weatherNow, moonInfo) {
+function renderMetricsGrid(ctx, weatherNow, moonInfo, sunData) {
   const card = document.getElementById('card-metrics');
   card.className = 'photographer-card card-accent-top purple card-enter';
-  const windScale = weatherNow.windScale || '?';
-  const windDir = weatherNow.windDir || '';
-  const windSpeed = weatherNow.windSpeed || 0;
-  const srLabel = ctx.sunriseGlow >= 70 ? '很可能烧' : ctx.sunriseGlow >= 50 ? '有希望' : ctx.sunriseGlow >= 30 ? '概率低' : '不太可能';
+  const glowLabels = getGlowLabels(sunData);
   const ssLabel = ctx.sunsetGlow >= 70 ? '很可能烧' : ctx.sunsetGlow >= 50 ? '有希望' : ctx.sunsetGlow >= 30 ? '概率低' : '不太可能';
+  const srLabel = ctx.sunriseGlow >= 70 ? '很可能烧' : ctx.sunriseGlow >= 50 ? '有希望' : ctx.sunriseGlow >= 30 ? '概率低' : '不太可能';
   const vis = CalcEngine.getVisibilityRating(ctx.visibilityKm);
 
   const cellData = [
-    { icon:'🔥', val:`${ctx.sunsetGlow}%`, label:'今晚晚霞', sub:ssLabel, tip:'7维度加权：云量(30%)、降水(18%)、湿度(16%)、风速(12%)、气压(9%)、大气洁净度(8%)、季节(7%)。云量20-70%且分布有变化为佳，露点差大则散射纯正。', hi:ctx.sunsetGlow>=70, cls: ctx.sunsetGlow>=70 ? 'bg-amber-900/25 ring-1 ring-amber-500/50' : 'bg-slate-800/50', vCls: ctx.sunsetGlow>=70 ? 'text-golden' : ctx.sunsetGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
-    { icon:'🌅', val:`${ctx.sunriseGlow}%`, label:'明晨朝霞', sub:srLabel, tip:'朝霞湿度通常更高，颜色偏粉红；晚霞云层更活跃，颜色偏橙红。两者基于同一7维度模型独立计算，朝霞参考当天凌晨逐小时数据。', hi:ctx.sunriseGlow>=70, cls: ctx.sunriseGlow>=70 ? 'bg-amber-900/25 ring-1 ring-amber-500/50' : 'bg-slate-800/50', vCls: ctx.sunriseGlow>=70 ? 'text-golden' : ctx.sunriseGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
-    { icon:'👁️', val:`${ctx.visibilityKm} km`, label:'能见度', sub:vis.level, tip:`${vis.desc}。优先使用API实测值，无数据时由天气文字+露点差+湿度+云量+风速+气压6因子交叉估算。`, hi:ctx.visibilityKm>=15, cls:'bg-slate-800/50', vCls: vis.color },
-    { icon:moonInfo?moonInfo.icon:'🌓', val:`${moonInfo?moonInfo.illumination:'?'}%`, label:moonInfo?moonInfo.name:'月相', sub:moonInfo?moonInfo.starTip:'', tip:'月照亮度越低星空越清晰。新月前后是银河/星轨最佳窗口，满月适合月光地景拍摄。', hi:false, cls:'bg-slate-800/50', vCls:'text-slate-200' },
-    { icon:'💨', val:`${windScale}级`, label:`${windDir} ${windSpeed}km/h`, sub:windSpeed<5?'静风':windSpeed<15?'微风':windSpeed<25?'和风':'大风', tip:'微风(5-15km/h)最利于稳定云层，适合长曝光和延时。静风时水面如镜适合倒影，大风易造成相机晃动。', hi:false, cls:'bg-slate-800/50', vCls: windSpeed<15?'text-emerald-400':'text-amber-400' },
-    { icon:'💧', val:`${ctx.humidity}%`, label: ctx.dewPoint != null ? `RH · 露点 ${ctx.dewPoint}°` : '相对湿度', sub:ctx.humidity>=40&&ctx.humidity<=65?'气溶胶最佳':ctx.humidity<30?'空气干燥':'偏高', tip: ctx.dewPoint != null ? `露点 ${ctx.dewPoint}°C，露点差 ${(ctx.temp - ctx.dewPoint).toFixed(1)}°C。露点差<2°C有雾风险，>8°C空气干爽清澈。40-65%湿度形成最佳气溶胶散射层。` : '40-65%形成最佳气溶胶散射，霞光颜色更浓郁。>80%雾感增加适合氛围创作，<30%空气清澈但霞光偏淡。', hi:false, cls:'bg-slate-800/50', vCls: ctx.humidity>=40&&ctx.humidity<=65?'text-emerald-400':ctx.humidity<30?'text-amber-400':'text-blue-400' }
+    { icon:'🔥', val:`${ctx.sunsetGlow}%`, label:glowLabels.sunsetLabel, sub:ssLabel,
+      tip:'7维度加权模型：云量(30%)、降水(18%)、湿度(16%)、风速(12%)、气压(9%)、大气洁净度(8%)、季节(7%)。云量20-70%且有变化为佳，雨后初晴是最佳窗口。',
+      hi:ctx.sunsetGlow>=70, cls: ctx.sunsetGlow>=70 ? 'bg-amber-900/20 ring-1 ring-amber-500/40 glow-pulse' : 'bg-slate-800/40',
+      vCls: ctx.sunsetGlow>=70 ? 'text-golden' : ctx.sunsetGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
+    { icon:'🌅', val:`${ctx.sunriseGlow}%`, label:glowLabels.sunriseLabel, sub:srLabel,
+      tip:'朝霞湿度通常更高，颜色偏粉红；晚霞云层更活跃，颜色偏橙红。同一7维度模型独立计算，朝霞参考凌晨逐小时数据。',
+      hi:ctx.sunriseGlow>=70, cls: ctx.sunriseGlow>=70 ? 'bg-amber-900/20 ring-1 ring-amber-500/40 glow-pulse' : 'bg-slate-800/40',
+      vCls: ctx.sunriseGlow>=70 ? 'text-golden' : ctx.sunriseGlow>=50 ? 'text-amber-400' : 'text-slate-400' },
+    { icon:'👁️', val:`${ctx.visibilityKm}`, unit:'km', label:'能见度', sub:vis.level,
+      tip:`${vis.desc}。优先API实测值，无数据时由天气文字+露点差+湿度+云量+风速+气压交叉估算。`,
+      hi:ctx.visibilityKm>=15, cls:'bg-slate-800/40',
+      vCls: ctx.visibilityKm>=15 ? 'text-golden' : ctx.visibilityKm>=10 ? 'text-emerald-400' : ctx.visibilityKm>=5 ? 'text-amber-400' : 'text-slate-400' },
+    { icon:moonInfo?moonInfo.icon:'🌓', val:`${moonInfo?moonInfo.illumination:'?'}`, unit:'%', label:moonInfo?moonInfo.name:'月相', sub:moonInfo?moonInfo.starTip:'',
+      tip:'月照亮度<20%是银河/星轨最佳窗口；满月适合月光地景。月出月落时间决定拍摄窗口。',
+      hi:false, cls:'bg-slate-800/40', vCls:'text-slate-200' }
   ];
 
   card.innerHTML = `<div class="grid grid-cols-2 gap-3">${cellData.map(c => `
     <div class="text-center p-4 rounded-2xl cursor-pointer active:scale-95 transition-transform ${c.cls}" onclick="App.showToast('${c.tip.replace(/'/g,"\\'")}')">
       <div class="text-2xl mb-1">${c.icon}</div>
-      <div class="text-2xl font-bold" style="color:${c.hi?'':''}"><span class="${c.vCls}">${c.val}</span></div>
+      <div class="text-2xl font-bold ${c.vCls}">${c.val}<span class="text-sm text-slate-500 font-normal ml-0.5">${c.unit||''}</span></div>
       <div class="text-xs text-slate-500 mt-0.5">${c.label}</div>
       <div class="text-xs font-medium mt-1 ${c.hi?'text-golden':'text-slate-400'}">${c.sub}</div>
     </div>
@@ -1131,18 +1332,22 @@ function renderLightTimeline(sunData) {
   else if (nowTs > ssTs) posPct = 95;
   else posPct = 5 + 90 * (nowTs - srTs) / (ssTs - srTs);
 
-  card.className = 'photographer-card card-accent-top blue card-enter';
+  card.className = 'photographer-card card-accent-top blue card-enter collapsible-section';
   card.innerHTML = `
-    <div class="flex items-center gap-2 mb-4">
+    <div class="collapsible-header mb-3">
       <i class="fa fa-clock-o text-blue-hour text-xl"></i>
-      <span class="font-bold text-slate-100 text-lg">光影时间线</span>
+      <span class="font-bold text-slate-100 text-lg flex-1">光影时间线</span>
+      <i class="fa fa-chevron-up collapsible-chevron"></i>
     </div>
+    <div class="collapsible-body">
     <div class="relative pt-2 pb-8 mb-4">
       <div class="flex justify-between text-xs text-slate-500 mb-2">
         <span>日出 ${fmt(sunrise)}</span>
         <span>日落 ${fmt(sunset)}</span>
       </div>
       <div class="h-4 rounded-full overflow-hidden relative" style="background:linear-gradient(to right, #6366F1 0%, #6366F1 12%, #F59E0B 22%, #FDE68A 38%, #FDE68A 62%, #F59E0B 78%, #6366F1 88%, #6366F1 100%)">
+        <!-- 刻度标记 -->
+        ${[12,22,38,62,78,88].map(p => `<div class="absolute top-0 w-px h-full bg-white/15" style="left:${p}%"></div>`).join('')}
         <div class="absolute top-0 w-1.5 h-4 bg-red-400 rounded-full shadow" style="left:${Math.max(1, Math.min(98, posPct))}%"></div>
       </div>
       <div class="flex justify-between text-xs text-slate-500 mt-1">
@@ -1158,6 +1363,7 @@ function renderLightTimeline(sunData) {
     <div class="mt-4 pt-3 border-t border-slate-700/50 text-center">
       <span class="text-blue-hour font-bold text-sm">⏱ 距离${countdown.target}还有 ${h}h ${m}min</span>
     </div>
+    </div>
   `;
 }
 
@@ -1165,19 +1371,20 @@ let _allScoredThemes = [];
 
 function renderRecommendCard(recommendations) {
   const card = document.getElementById('card-recommend');
-  card.className = 'photographer-card card-accent-top green card-enter';
+  card.className = 'photographer-card card-accent-top green card-enter collapsible-section';
   const best = recommendations[0];
   const stars = '★'.repeat(Math.min(5, Math.round(best.points / 20))) + '☆'.repeat(Math.max(0, 5 - Math.round(best.points / 20)));
 
   card.innerHTML = `
-    <div class="flex items-center gap-2 mb-4">
+    <div class="collapsible-header mb-3">
       <i class="fa fa-camera text-emerald-400 text-xl"></i>
-      <span class="font-bold text-slate-100 text-lg">今日适合拍摄</span>
-      <span class="text-xs text-slate-600 ml-1">满分100</span>
-      <button id="btn-all-themes" class="ml-auto text-xs text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full hover:bg-emerald-400/20 transition touch-target">
+      <span class="font-bold text-slate-100 text-lg flex-1">今日适合拍摄 <span class="text-xs text-slate-600 font-normal">/100</span></span>
+      <button id="btn-all-themes" class="text-xs text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full hover:bg-emerald-400/20 transition touch-target" onclick="event.stopPropagation()">
         查看全部 <i class="fa fa-chevron-down"></i>
       </button>
+      <i class="fa fa-chevron-up collapsible-chevron ml-1"></i>
     </div>
+    <div class="collapsible-body">
     <div class="bg-gradient-to-br from-emerald-900/30 to-teal-900/20 rounded-2xl p-5 text-center mb-3 border border-emerald-500/10">
       <div class="text-4xl mb-2"><i class="fa fa-${best.icon} text-emerald-400"></i></div>
       <div class="text-xl font-bold text-slate-100 mb-1">${best.name}</div>
@@ -1203,9 +1410,11 @@ function renderRecommendCard(recommendations) {
       <div class="text-sm text-slate-500 mb-2">📸 全部拍摄主题评分 <span class="text-slate-600">(满分100)</span></div>
       <div id="all-themes-list" class="space-y-1.5 max-h-64 overflow-y-auto"></div>
     </div>
+    </div>
   `;
 
-  document.getElementById('btn-all-themes').addEventListener('click', () => {
+  document.getElementById('btn-all-themes').addEventListener('click', (e) => {
+    e.stopPropagation();
     const panel = document.getElementById('all-themes-panel');
     const btn = document.getElementById('btn-all-themes');
     const isOpen = !panel.classList.contains('hidden');
@@ -1237,7 +1446,7 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
     card.innerHTML = '<div class="text-center text-slate-500 py-4">未来预报暂不可用</div>';
     return;
   }
-  card.className = 'photographer-card card-accent-top purple card-enter';
+  card.className = 'photographer-card card-accent-top purple card-enter collapsible-section';
   const dayLabels = ['今天', '明天', '后天'];
   const month = new Date().getMonth() + 1;
   const currMoonIllum = moonInfo ? moonInfo.illumination : 50;
@@ -1291,23 +1500,81 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
   }).join('');
 
   card.innerHTML = `
-    <div class="flex items-center gap-2 mb-4">
+    <div class="collapsible-header mb-3">
       <i class="fa fa-calendar text-blue-hour text-xl"></i>
-      <span class="font-bold text-slate-100 text-lg">未来天气</span>
-      <span class="text-xs text-slate-600">摄影指数 /100</span>
+      <span class="font-bold text-slate-100 text-lg flex-1">未来天气 <span class="text-xs text-slate-600 font-normal">摄影指数 /100</span></span>
+      <i class="fa fa-chevron-up collapsible-chevron"></i>
     </div>
-    <div class="grid grid-cols-3 gap-2">${items}</div>
-    <div class="text-xs text-slate-600 text-center mt-3">* 基于3日预报数据推算，仅供参考</div>
+    <div class="collapsible-body">
+      <div class="grid grid-cols-3 gap-2">${items}</div>
+      <div class="text-xs text-slate-600 text-center mt-3">* 基于3日预报数据推算，仅供参考</div>
+    </div>
+  `;
+}
+
+function renderBestWeek(dailyData, weatherNow, moonInfo) {
+  const card = document.getElementById('card-best-week');
+  if (!dailyData || dailyData.length < 3) {
+    card.innerHTML = '';
+    return;
+  }
+  card.className = 'photographer-card card-accent-top golden reveal-on-scroll py-4';
+
+  const dayLabels = ['今天', '明天', '后天'];
+  const month = new Date().getMonth() + 1;
+  const currMoonIllum = moonInfo ? moonInfo.illumination : 50;
+
+  const scored = dailyData.slice(0, 3).map((d, i) => {
+    const textDay = (d.textDay || '').toLowerCase();
+    const vis = parseFloat(d.vis);
+    const visibilityKm = (!isNaN(vis) && vis > 0 && vis < 50) ? Math.round(vis) : CalcEngine.estimateVisibility(
+      { text: d.textDay, humidity: d.humidity, cloud: d.cloud, windSpeed: d.windSpeedDay, pressure: d.pressure }, null
+    );
+    const cloudCover = parseInt(d.cloud) || 50;
+    const humidity = parseInt(d.humidity) || 50;
+    const windSpeed = parseInt(d.windSpeedDay) || 0;
+    const temp = parseInt(d.tempMax) || 20;
+    const isPostRain = (textDay.includes('晴') || textDay.includes('多云')) && !textDay.includes('雨');
+    const isAutumn = month >= 9 && month <= 11;
+    const cloudScore = (cloudCover >= 20 && cloudCover <= 70) ? 90 : (cloudCover >= 10 && cloudCover <= 85) ? 55 : 20;
+    const humScore = (humidity >= 35 && humidity <= 65) ? 90 : (humidity >= 25 && humidity <= 80) ? 65 : 30;
+    const glowEst = Math.round(cloudScore * 0.4 + humScore * 0.25 + (isPostRain ? 25 : 0) + (isAutumn ? 10 : 0));
+    const idx = CalcEngine.getPhotoIndex({ visibilityKm, sunriseGlow: glowEst, sunsetGlow: glowEst, cloudCover, humidity, windSpeed, temp, isAutumn, isPostRain, isMorning: true, moonIllum: currMoonIllum });
+    return { ...idx, day: dayLabels[i], icon: d.iconDay || '100', tempMax: d.tempMax, tempMin: d.tempMin, text: d.textDay || '' };
+  });
+
+  const best = scored.reduce((a, b) => a.total > b.total ? a : b);
+  const bestIdx = scored.indexOf(best);
+
+  card.innerHTML = `
+    <div class="flex items-center gap-2 mb-3">
+      <i class="fa fa-calendar-check-o text-golden text-lg"></i>
+      <span class="font-bold text-slate-100">最佳拍摄日</span>
+      <span class="text-xs text-golden font-bold bg-golden/10 px-2 py-0.5 rounded-full ml-auto">${best.day} ${best.total}分</span>
+    </div>
+    <div class="grid grid-cols-3 gap-2">
+      ${scored.map((s, i) => `
+        <div class="text-center p-3 rounded-xl ${i === bestIdx ? 'bg-golden/10 ring-1 ring-golden/40' : 'bg-slate-800/30'}">
+          <div class="text-xs text-slate-500">${s.day}</div>
+          <div class="text-xl my-1">${getWeatherEmoji(s.icon)}</div>
+          <div class="text-xs text-slate-400">${s.tempMax}°/${s.tempMin}°</div>
+          <div class="text-lg font-bold mt-1 ${s.total >= 75 ? 'text-emerald-400' : s.total >= 50 ? 'text-golden' : 'text-slate-400'}">${s.total}</div>
+        </div>
+      `).join('')}
+    </div>
   `;
 }
 
 function renderWarningBanner(warnings) {
   const card = document.getElementById('card-warning');
+  const sky = document.getElementById('sky-canvas');
   if (!warnings || !warnings.length) {
     card.classList.add('hidden');
     card.innerHTML = '';
+    sky.classList.remove('warning-glow');
     return;
   }
+  sky.classList.add('warning-glow');
   card.classList.remove('hidden');
   card.className = 'photographer-card card-enter';
   card.innerHTML = warnings.map(w => {
@@ -1329,18 +1596,18 @@ function renderWarningBanner(warnings) {
 }
 
 function showSkeletons() {
-  const heights = { 'card-weather':'h-52', 'card-gauge':'h-48', 'card-metrics':'h-56' };
-  Object.entries(heights).forEach(([id, h]) => {
-    document.getElementById(id).innerHTML = `<div class="skeleton ${h} rounded-xl"></div>`;
-  });
-  // 只给当前激活的标签面板显示骨架
-  const activePanel = document.getElementById('card-recommend');
-  if (activePanel && !activePanel.classList.contains('hidden')) {
-    activePanel.innerHTML = '<div class="skeleton h-44 rounded-xl"></div>';
-  }
-  ['card-light','card-future'].forEach(id => {
+  const configs = [
+    { id: 'card-gauge',    h: 'h-56' },
+    { id: 'card-weather',  h: 'h-24' },
+    { id: 'card-metrics',  h: 'h-36' },
+    { id: 'card-best-week',h: 'h-28' },
+    { id: 'card-recommend',h: 'h-44' },
+    { id: 'card-light',    h: 'h-40' },
+    { id: 'card-future',   h: 'h-40' },
+  ];
+  configs.forEach(({ id, h }) => {
     const el = document.getElementById(id);
-    if (el && el.classList.contains('hidden')) el.innerHTML = '';
+    if (el) el.innerHTML = `<div class="skeleton ${h} rounded-xl"></div>`;
   });
 }
 
@@ -1423,32 +1690,18 @@ const App = {
     document.getElementById('btn-gps').addEventListener('touchend', function() { this.classList.remove('bg-amber-900/60'); });
     document.getElementById('settings-btn').addEventListener('click', () => this.showSetupOverlay());
     this.initPullToRefresh();
-    this.initTabBar();
+    this.initCollapsibleSections();
     this.initScrollReveal();
   },
 
-  initTabBar() {
-    const tabs = document.querySelectorAll('#tab-bar .tab-btn');
-    const panels = {
-      recommend: document.getElementById('card-recommend'),
-      light: document.getElementById('card-light'),
-      future: document.getElementById('card-future'),
-    };
-    tabs.forEach(btn => {
-      btn.addEventListener('click', () => {
-        tabs.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        Object.values(panels).forEach(p => p.classList.add('hidden'));
-        const key = btn.dataset.tab;
-        if (panels[key]) {
-          panels[key].classList.remove('hidden');
-          // 切换时触发该面板的渐入动画
-          panels[key].classList.remove('visible');
-          requestAnimationFrame(() => {
-            panels[key].classList.add('visible');
-          });
-        }
-      });
+  initCollapsibleSections() {
+    // 事件委托：点击折叠头部切换展开/折叠
+    document.getElementById('main-content').addEventListener('click', (e) => {
+      const header = e.target.closest('.collapsible-header');
+      if (!header) return;
+      const section = header.closest('.collapsible-section');
+      if (!section) return;
+      section.classList.toggle('collapsed');
     });
   },
 
@@ -1494,6 +1747,7 @@ const App = {
   initPullToRefresh() {
     const main = document.getElementById('main-content');
     const indicator = document.getElementById('pull-indicator');
+    const sky = document.getElementById('sky-canvas');
     let startY = 0, pulling = false;
     main.addEventListener('touchstart', e => {
       if (window.scrollY > 5) return;
@@ -1507,10 +1761,16 @@ const App = {
         indicator.style.opacity = '1';
         indicator.innerHTML = '<i class="fa fa-arrow-down"></i> 释放刷新';
       }
+      // 天空随下拉变亮（云层散开效果）
+      if (dy > 0 && dy < 200) {
+        const brightness = 1 + dy / 200 * 0.3;
+        sky.style.filter = `brightness(${brightness})`;
+      }
     }, { passive: true });
     main.addEventListener('touchend', e => {
       if (!pulling) return;
       const dy = e.changedTouches[0].clientY - startY;
+      sky.style.filter = '';
       if (dy > 60) {
         indicator.innerHTML = '<i class="fa fa-spinner fa-spin"></i> 刷新中…';
         this.refresh().then(() => {
@@ -1535,6 +1795,12 @@ const App = {
   },
 
   async fetchAllData(locationId) {
+    // 城市切换过渡：天空短暂模糊+变亮
+    const sky = document.getElementById('sky-canvas');
+    sky.style.transition = 'filter 0.4s ease';
+    sky.style.filter = 'blur(4px) brightness(1.15)';
+    setTimeout(() => { sky.style.filter = 'blur(0px) brightness(1)'; }, 500);
+
     showSkeletons();
     this.hideStaleBanner();
     const results = { weatherNow: null, weather24h: null, sunData: null, airNow: null, moonData: null, dailyData: null, warnings: null };
@@ -1579,9 +1845,10 @@ const App = {
     const photoIndex = CalcEngine.getPhotoIndex(ctx);
     const recs = RecommendEngine.getRecommendations(ctx);
 
+    const glowLabels = getGlowLabels(sunData);
     const summaryParts = [];
-    if (sunsetProb >= 65) summaryParts.push('晚霞概率高');
-    else if (sunriseProb >= 65) summaryParts.push('朝霞概率高');
+    if (sunsetProb >= 65) summaryParts.push(glowLabels.sunsetLabel + '概率高');
+    if (sunriseProb >= 65) summaryParts.push(glowLabels.sunriseLabel + '概率高');
     if (visibilityKm >= 10) summaryParts.push('能见度佳');
     if (ctx.windSpeed < 15 && ctx.windSpeed > 3) summaryParts.push('风力适宜');
     if (ctx.isStorm) summaryParts.push('📡 注意天气变化');
@@ -1600,17 +1867,22 @@ const App = {
     }
 
     renderWeatherHero(weatherNow, ctx);
-    renderPhotoGauge(photoIndex);
-    renderMetricsGrid(ctx, weatherNow, moonInfo);
+    renderPhotoGauge(photoIndex, sunData);
+    renderMetricsGrid(ctx, weatherNow, moonInfo, sunData);
     renderRecommendCard(recs);
     renderLightTimeline(sunData || {});
     renderFutureDays(dailyData, weatherNow, moonInfo);
+    renderBestWeek(dailyData, weatherNow, moonInfo);
     renderWarningBanner(allWarnings);
 
     document.getElementById('weather-update-time').textContent =
       `📍 ${this.currentCity.name} · 更新于 ${new Date().toLocaleTimeString('zh-CN')}`;
     document.getElementById('gauge-summary').textContent = summaryParts.join(' · ');
     if (summaryParts.includes('注意天气变化')) document.getElementById('gauge-summary').className = 'text-sm text-amber-400';
+
+    // 设置天色主题
+    const skyType = getSkyType(weatherNow, sunData?.sunrise, sunData?.sunset);
+    document.body.setAttribute('data-sky', skyType);
   },
 
   buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo) {
@@ -1750,7 +2022,7 @@ const App = {
   clearSkeletonsWithHint(hint) {
     const card = document.getElementById('card-weather');
     card.innerHTML = `<div class="text-center py-12 text-slate-500"><i class="fa fa-map-marker text-4xl mb-3 block"></i><p class="text-sm">${hint}</p><button class="mt-3 bg-golden text-slate-900 px-5 py-2 rounded-full text-sm font-bold" onclick="App.openCitySheet()">手动选择城市</button></div>`;
-    ['card-gauge','card-metrics','card-recommend','card-light','card-future'].forEach(id => {
+    ['card-gauge','card-metrics','card-best-week','card-recommend','card-light','card-future'].forEach(id => {
       document.getElementById(id).innerHTML = '';
     });
   },
