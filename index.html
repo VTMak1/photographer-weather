@@ -842,22 +842,59 @@ function getWeatherEmoji(code) {
 
 let _hourlyData = [];
 
-function renderWeatherHero(data) {
+function renderWeatherHero(data, ctx) {
   const card = document.getElementById('card-weather');
   const iconCode = data.icon || '100';
-  card.className = 'photographer-card card-accent-top golden card-enter text-center py-6';
-  card.style.background = 'linear-gradient(135deg, #1e293b 0%, #1a1a2e 100%)';
+  const temp = parseInt(data.temp) || 0;
+  const humidity = parseInt(data.humidity) || 50;
+  const windScale = data.windScale || '?';
+  const windDir = data.windDir || '';
+  const windSpeed = parseInt(data.windSpeed) || 0;
+
+  // 简易热指数作为参考对照（仅当温度 ≥27°C 且湿度 ≥40% 时适用）
+  let heatNote = '';
+  if (temp >= 27 && humidity >= 40) {
+    const hi = temp + (humidity - 50) * 0.15 + (temp - 30) * 0.6;
+    const adjFeel = Math.round(temp + (humidity - 40) * 0.12);
+    if (adjFeel > temp + 2) {
+      heatNote = `高湿体感 ≈${adjFeel}°`;
+    }
+  }
+
+  // 根据气温动态背景
+  let bgGradient;
+  if (temp >= 35) bgGradient = 'linear-gradient(135deg, #2d1a1a 0%, #1e1a1a 100%)';
+  else if (temp >= 28) bgGradient = 'linear-gradient(135deg, #2d2415 0%, #1e293b 100%)';
+  else if (temp <= 0) bgGradient = 'linear-gradient(135deg, #1a1f2e 0%, #1e293b 100%)';
+  else bgGradient = 'linear-gradient(135deg, #1e293b 0%, #1a1a2e 100%)';
+
+  card.className = 'photographer-card card-accent-top golden card-enter text-center py-5';
+  card.style.background = bgGradient;
   card.innerHTML = `
-    <div class="text-6xl mb-1">${getWeatherEmoji(iconCode)}</div>
-    <div class="text-5xl font-bold text-slate-100 mb-1">${data.temp}°</div>
-    <div class="text-slate-400 text-base mb-4">${data.text} · 体感 ${data.feelsLike}°</div>
+    <div class="flex items-center justify-center gap-4 mb-2">
+      <span class="text-5xl">${getWeatherEmoji(iconCode)}</span>
+      <div class="text-left">
+        <div class="text-5xl font-bold text-slate-100 leading-none">${data.temp}°</div>
+        <div class="text-sm text-slate-400 mt-0.5">${data.text}</div>
+      </div>
+    </div>
+    <div class="inline-flex items-center gap-1 text-sm font-medium px-3 py-1 rounded-full mb-3" style="background:${temp>=28?'rgba(251,146,60,0.15)':'rgba(148,163,184,0.1)'}">
+      <span class="text-slate-400">体感</span>
+      <span class="text-slate-100">${data.feelsLike}°</span>
+      ${heatNote ? `<span class="text-xs text-amber-400 ml-1">(${heatNote})</span>` : ''}
+    </div>
+    <div class="flex justify-center gap-5 text-xs text-slate-500 mb-4">
+      <div class="flex items-center gap-1"><span class="text-base">💧</span>${humidity}%</div>
+      <div class="flex items-center gap-1"><span class="text-base">💨</span>${windDir} ${windScale}级</div>
+      <div class="flex items-center gap-1"><span class="text-base">👁️</span>${ctx ? ctx.visibilityKm : '?'}km</div>
+    </div>
     <div class="inline-flex items-center gap-1 text-sm text-slate-500 cursor-pointer hover:text-slate-300" id="hourly-toggle">
       <i class="fa fa-clock-o"></i> 逐小时预报 <i id="hourly-chevron" class="fa fa-chevron-down text-xs"></i>
     </div>
     <div id="hourly-panel" class="hidden mt-3 pt-3 border-t border-slate-700/50">
       <div id="hourly-scroll" class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1"></div>
     </div>
-    <div class="text-xs text-slate-500 mt-3" id="weather-update-time"></div>
+    <div class="text-xs text-slate-600 mt-3" id="weather-update-time"></div>
   `;
   document.getElementById('hourly-toggle').addEventListener('click', () => {
     const panel = document.getElementById('hourly-panel');
@@ -1176,7 +1213,7 @@ function renderWarningBanner(warnings) {
 }
 
 function showSkeletons() {
-  const heights = { 'card-weather':'h-48', 'card-gauge':'h-48', 'card-metrics':'h-56' };
+  const heights = { 'card-weather':'h-52', 'card-gauge':'h-48', 'card-metrics':'h-56' };
   Object.entries(heights).forEach(([id, h]) => {
     document.getElementById(id).innerHTML = `<div class="skeleton ${h} rounded-xl"></div>`;
   });
@@ -1446,7 +1483,7 @@ const App = {
       }
     }
 
-    renderWeatherHero(weatherNow);
+    renderWeatherHero(weatherNow, ctx);
     renderPhotoGauge(photoIndex);
     renderMetricsGrid(ctx, weatherNow, moonInfo);
     renderRecommendCard(recs);
