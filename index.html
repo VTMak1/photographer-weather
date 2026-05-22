@@ -980,12 +980,6 @@ function renderWeatherHero(data, ctx) {
   else if (temp <= 0) bgGradient = 'linear-gradient(135deg, #1a1f2e 0%, #1e293b 100%)';
   else bgGradient = 'linear-gradient(135deg, #1e293b 0%, #1a1a2e 100%)';
 
-  // 数据来源标注（点击可查看详情）
-  const sourceBadge = `<span class="text-slate-600 text-xs cursor-pointer hover:text-slate-400 underline decoration-dotted underline-offset-2" onclick="event.stopPropagation();App.showToast('气象数据来源：和风天气 API v7
-实时天气 · 逐小时预报 · 日出日落
-月相 · 空气质量 · 3日预报
-custom host: n43aara9tt.re.qweatherapi.com')">ⓘ 数据来源</span>`;
-
   card.className = 'photographer-card card-accent-top golden card-enter text-center py-5';
   card.style.background = bgGradient;
   card.innerHTML = `
@@ -993,7 +987,7 @@ custom host: n43aara9tt.re.qweatherapi.com')">ⓘ 数据来源</span>`;
       <span class="text-5xl">${getWeatherEmoji(iconCode)}</span>
       <div class="text-left">
         <div class="text-5xl font-bold text-slate-100 leading-none">${data.temp}°</div>
-        <div class="text-sm text-slate-400 mt-0.5">${data.text} ${sourceBadge}</div>
+        <div class="text-sm text-slate-400 mt-0.5">${data.text}</div>
       </div>
     </div>
     <div class="inline-flex items-center gap-1 text-sm font-medium px-3 py-1 rounded-full mb-3" style="background:${temp>=28?'rgba(251,146,60,0.15)':'rgba(148,163,184,0.1)'}">
