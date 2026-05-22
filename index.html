@@ -217,7 +217,7 @@ tailwind.config = {
 
 <!-- Toast 轻提示 -->
 <div id="toast" class="fixed bottom-28 inset-x-0 z-[70] flex justify-center pointer-events-none opacity-0 transition-opacity duration-300">
-  <div class="bg-slate-700 text-slate-200 text-sm px-5 py-3 rounded-2xl shadow-xl max-w-xs text-center border border-slate-600"></div>
+  <div class="bg-slate-700 text-slate-200 text-sm px-5 py-3 rounded-2xl shadow-xl max-w-sm text-center border border-slate-600 whitespace-pre-line"></div>
 </div>
 
 <!-- 初始设置引导 -->
@@ -633,12 +633,18 @@ const CalcEngine = {
     const total = Math.round(scores.reduce((sum, s) => sum + s.score * s.weight, 0));
     const label = total >= 75 ? '适宜拍摄' : total >= 50 ? '可以出门' : '不太理想';
     const color = total >= 75 ? '#34d399' : total >= 50 ? '#F59E0B' : '#94a3b8';
-    // 改进建议
+    // 分档位文案
     let improvement = '';
-    if (total < 75) {
-      const weak = scores.filter(s => s.score < 50).map(s => s.name);
-      if (weak.length) improvement = '改善方向：' + weak.join('、');
-      else improvement = '各项指标均衡，可尝试不同拍摄主题';
+    if (total >= 80) {
+      improvement = '光影绝佳，出门爽拍！带上相机，今日必出大片 🔥';
+    } else if (total >= 65) {
+      improvement = '条件不错，值得出门，好光影不等人 📷';
+    } else if (total >= 50) {
+      improvement = '还能拍，但别太期待。换个角度，平凡里也能出奇片 ✨';
+    } else if (total >= 35) {
+      improvement = '别生气，大自然的灯光总会再亮起。今天先踩点，明天再战 🌤️';
+    } else {
+      improvement = '今日宜宅家修图，好天气值得等待。翻开旧片，重温光影吧 🏠';
     }
     return { total, label, color, scores, improvement };
   }
@@ -780,7 +786,7 @@ function renderPhotoGauge(photoIndex) {
   card.className = 'photographer-card card-accent-top golden card-enter text-center py-6';
   const angle = Math.max(-180, Math.min(0, -180 + (photoIndex.total / 100) * 180));
   const detailText = photoIndex.scores.map(s => `${s.name}:${Math.round(s.score)}分`).join('，');
-  const badgeIcon = photoIndex.total >= 75 ? 'check-circle' : photoIndex.total >= 50 ? 'minus-circle' : 'info-circle';
+  const tipMsg = photoIndex.improvement || `摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`;
 
   card.innerHTML = `
     <div class="text-xs text-slate-500 uppercase tracking-wider mb-2">综合摄影指数 <span class="text-slate-600">/100</span></div>
@@ -790,8 +796,8 @@ function renderPhotoGauge(photoIndex) {
       </div>
     </div>
     <div class="text-6xl font-bold text-slate-100 -mt-8 mb-1 cursor-pointer select-none" data-gauge-detail="${detailText}">${photoIndex.total}</div>
-    <div class="inline-flex items-center gap-1 px-4 py-1 rounded-full text-sm font-bold mb-3 cursor-pointer hover:opacity-80 transition" style="background:${photoIndex.color}20;color:${photoIndex.color}" data-gauge-tip="${photoIndex.improvement || ''}">
-      <i class="fa fa-${badgeIcon} mr-1"></i>${photoIndex.label} <i class="fa fa-info-circle text-xs ml-0.5"></i>
+    <div class="inline-flex px-5 py-1.5 rounded-full text-sm font-bold mb-3 cursor-pointer hover:opacity-80 transition" style="background:${photoIndex.color}20;color:${photoIndex.color}" data-gauge-tip="${tipMsg.replace(/"/g,'&quot;')}">
+      ${photoIndex.label}
     </div>
     <p class="text-sm text-slate-400" id="gauge-summary"></p>
     <div class="grid grid-cols-4 gap-1 mt-4 pt-4 border-t border-slate-700/50 text-xs text-slate-500 cursor-pointer" data-gauge-detail="${detailText}">
@@ -799,20 +805,13 @@ function renderPhotoGauge(photoIndex) {
     </div>
   `;
 
-  // 事件委托：点击分数或底部指标显示详细分数
   card.querySelectorAll('[data-gauge-detail]').forEach(el => {
     el.addEventListener('click', () => App.showToast(el.dataset.gaugeDetail));
   });
-  // 徽章点击显示改进建议
   const tipEl = card.querySelector('[data-gauge-tip]');
   if (tipEl) {
     tipEl.addEventListener('click', () => {
-      const tip = tipEl.dataset.gaugeTip;
-      if (tip) {
-        App.showToast(`改善方向\n${tip}`);
-      } else {
-        App.showToast(`摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`);
-      }
+      App.showToast(tipEl.dataset.gaugeTip);
     });
   }
 }
