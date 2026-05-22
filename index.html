@@ -26,8 +26,8 @@ tailwind.config = {
 <style>
   :root {
     --bg: #0f172a;
-    --card: #1e293b;
-    --card-border: #334155;
+    --card: rgba(30, 41, 59, 0.65);
+    --card-border: rgba(51, 65, 85, 0.5);
     --text-primary: #e2e8f0;
     --text-secondary: #94a3b8;
     --text-muted: #64748b;
@@ -37,17 +37,19 @@ tailwind.config = {
   }
   .photographer-card {
     border-radius: 20px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.04) inset;
     padding: 20px;
     position: relative;
     overflow: hidden;
     background: var(--card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--card-border);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
   }
   .photographer-card:active {
     transform: scale(0.98);
-    box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
   }
   .card-accent-top { border-top: 3px solid transparent; }
   .card-accent-top.golden  { border-top-color: var(--accent-golden); }
@@ -55,7 +57,7 @@ tailwind.config = {
   .card-accent-top.purple  { border-top-color: #a78bfa; }
   .card-accent-top.green   { border-top-color: var(--accent-green); }
   .skeleton {
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background: linear-gradient(90deg, rgba(30,41,59,0.6) 25%, rgba(51,65,85,0.5) 50%, rgba(30,41,59,0.6) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
   }
@@ -64,16 +66,16 @@ tailwind.config = {
     100% { background-position: -200% 0; }
   }
   .glass {
-    background: rgba(15, 23, 42, 0.88);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-bottom: 1px solid #1e293b;
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(20px) saturate(1.2);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
   }
   .card-enter {
-    animation: cardSlideUp 0.45s ease-out both;
+    animation: cardSlideUp 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
   }
   @keyframes cardSlideUp {
-    from { opacity: 0; transform: translateY(18px); }
+    from { opacity: 0; transform: translateY(24px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   @keyframes pageFadeIn {
@@ -82,6 +84,43 @@ tailwind.config = {
   }
   body {
     animation: pageFadeIn 0.5s ease-out;
+  }
+  /* 滚动渐入 */
+  .reveal-on-scroll {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .reveal-on-scroll.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  /* 标签栏 */
+  .tab-bar {
+    display: flex;
+    background: rgba(30, 41, 59, 0.5);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 14px;
+    padding: 4px;
+    gap: 2px;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px 6px;
+    border-radius: 11px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: all 0.25s ease;
+    text-align: center;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tab-btn.active {
+    background: rgba(51, 65, 85, 0.7);
+    color: var(--text-primary);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   }
   #city-sheet {
     transform: translateY(100%);
@@ -109,6 +148,11 @@ tailwind.config = {
     background: conic-gradient(from 180deg, #34d399 0deg, #F59E0B 90deg, #64748b 180deg);
     mask: radial-gradient(circle at 50% 100%, transparent 58%, black 60%);
     -webkit-mask: radial-gradient(circle at 50% 100%, transparent 58%, black 60%);
+  }
+  /* 衍生预警 */
+  .derived-warning {
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.2);
   }
 </style>
 </head>
@@ -160,17 +204,23 @@ tailwind.config = {
   </section>
 
   <!-- 拍摄主题推荐卡片 -->
-  <section id="card-recommend" class="photographer-card card-accent-top green card-enter" style="animation-delay:240ms">
+  <div class="tab-bar mt-1 reveal-on-scroll" id="tab-bar">
+    <button class="tab-btn active" data-tab="recommend">📸 拍摄推荐</button>
+    <button class="tab-btn" data-tab="light">⏱ 光影时间线</button>
+    <button class="tab-btn" data-tab="future">📅 未来天气</button>
+  </div>
+
+  <section id="card-recommend" class="photographer-card card-accent-top green reveal-on-scroll" style="transition-delay:0ms">
     <div class="skeleton h-44 rounded-xl"></div>
   </section>
 
   <!-- 光影时间线 -->
-  <section id="card-light" class="photographer-card card-accent-top blue card-enter" style="animation-delay:320ms">
+  <section id="card-light" class="photographer-card card-accent-top blue reveal-on-scroll hidden" style="transition-delay:0ms">
     <div class="skeleton h-40 rounded-xl"></div>
   </section>
 
   <!-- 未来三天 -->
-  <section id="card-future" class="photographer-card card-accent-top purple card-enter" style="animation-delay:360ms">
+  <section id="card-future" class="photographer-card card-accent-top purple reveal-on-scroll hidden" style="transition-delay:0ms">
     <div class="skeleton h-40 rounded-xl"></div>
   </section>
 
@@ -401,9 +451,11 @@ const API = {
     try {
       const url = `${CONFIG.QWEATHER_BASE}/warning/now?location=${locationId}&key=${CONFIG.KEY}`;
       const data = await this.fetchJSON(url);
-      if (data.code !== '200') return null;
-      Cache.set(cacheKey, data.warning || []);
-      return data.warning || [];
+      if (data.code === '200' && data.warning && data.warning.length) {
+        Cache.set(cacheKey, data.warning);
+        return data.warning;
+      }
+      return null;
     } catch (e) {
       return null;
     }
@@ -537,69 +589,86 @@ const CalcEngine = {
 
   getGlowProbability(hourlyData, isSunrise, weatherNow) {
     const targetHours = isSunrise ? [5, 6, 7, 8] : [16, 17, 18, 19];
-    let cloudSum = 0, humiditySum = 0, windSum = 0, count = 0;
+    let cloudSum = 0, humiditySum = 0, windSum = 0, precipSum = 0, count = 0;
+    let cloudMin = 100, cloudMax = 0;
     for (const h of hourlyData) {
       const hour = new Date(h.fxTime).getHours();
       if (targetHours.includes(hour)) {
-        cloudSum += parseInt(h.cloud) || 0;
+        const c = parseInt(h.cloud) || 50;
+        cloudSum += c;
+        if (c < cloudMin) cloudMin = c;
+        if (c > cloudMax) cloudMax = c;
         humiditySum += parseInt(h.humidity) || 0;
         windSum += parseInt(h.windSpeed) || parseInt(h.windScale) * 3 || 0;
+        precipSum += parseFloat(h.precip) || 0;
         count++;
       }
     }
     if (count === 0 && weatherNow) {
-      cloudSum = parseInt(weatherNow.cloud) || 50;
+      const c = parseInt(weatherNow.cloud) || 50;
+      cloudSum = c; cloudMin = c; cloudMax = c;
       humiditySum = parseInt(weatherNow.humidity) || 50;
       windSum = parseInt(weatherNow.windSpeed) || 0;
+      precipSum = parseFloat(weatherNow.precip) || 0;
       count = 1;
     }
     if (count === 0) return 0;
     const avgCloud = cloudSum / count;
     const avgHumidity = humiditySum / count;
     const avgWind = windSum / count;
+    const avgPrecip = precipSum / count;
     const text = (weatherNow?.text || '').toLowerCase();
-    const precip = parseFloat(weatherNow?.precip) || 0;
     const pressure = parseInt(weatherNow?.pressure) || 1013;
+    const month = new Date().getMonth() + 1;
 
+    // 云量评分：霞光需要 20-70% 的云量，太少没色彩，太多挡住光
     let cloudScore;
-    if (avgCloud >= 25 && avgCloud <= 65) cloudScore = 100;
-    else if (avgCloud >= 15 && avgCloud <= 80) cloudScore = 65;
-    else if (avgCloud >= 5 && avgCloud <= 95) cloudScore = 30;
+    const cloudSpread = cloudMax - cloudMin;
+    if (avgCloud >= 20 && avgCloud <= 70 && cloudSpread >= 10) cloudScore = 100;
+    else if (avgCloud >= 15 && avgCloud <= 75) cloudScore = 80;
+    else if (avgCloud >= 10 && avgCloud <= 85) cloudScore = 55;
+    else if (avgCloud >= 5 && avgCloud <= 95) cloudScore = 25;
     else cloudScore = 10;
 
+    // 湿度评分：40-65% 气溶胶散射最佳
     let humidityScore;
-    if (avgHumidity >= 40 && avgHumidity <= 65) humidityScore = 100;
-    else if (avgHumidity >= 25 && avgHumidity <= 80) humidityScore = 70;
-    else if (avgHumidity >= 15 && avgHumidity <= 90) humidityScore = 35;
+    if (avgHumidity >= 35 && avgHumidity <= 65) humidityScore = 100;
+    else if (avgHumidity >= 25 && avgHumidity <= 80) humidityScore = 75;
+    else if (avgHumidity >= 15 && avgHumidity <= 90) humidityScore = 40;
     else humidityScore = 15;
 
+    // 风速评分：微风最佳，静风或大风不利
     let windScore;
-    if (avgWind >= 5 && avgWind <= 18) windScore = 100;
-    else if (avgWind >= 2 && avgWind <= 25) windScore = 70;
-    else if (avgWind < 2) windScore = 50;
-    else windScore = 30;
+    if (avgWind >= 4 && avgWind <= 16) windScore = 100;
+    else if (avgWind >= 2 && avgWind <= 22) windScore = 70;
+    else if (avgWind < 2) windScore = 45;
+    else windScore = 25;
 
+    // 降水评分：雨后初晴最佳，正在下雨则差
     let precipScore;
-    const isPostRain = (text.includes('晴') || text.includes('多云')) && precip === 0;
-    if (text.includes('雨') && precip > 0) precipScore = 20;
-    else if (isPostRain) precipScore = 100;
-    else if (precip === 0 && !text.includes('雨')) precipScore = 60;
+    const isPostRain = (text.includes('晴') || text.includes('多云')) && avgPrecip === 0 && !text.includes('雨');
+    if (isPostRain) precipScore = 100;
+    else if (text.includes('雨') && avgPrecip > 0) precipScore = 15;
+    else if (avgPrecip === 0 && !text.includes('雨')) precipScore = 65;
     else precipScore = 30;
 
+    // 气压评分
     let pressureScore;
-    if (pressure >= 1015 && pressure <= 1025) pressureScore = 100;
-    else if (pressure > 1025) pressureScore = 70;
-    else if (pressure >= 1005) pressureScore = 60;
-    else pressureScore = 30;
+    if (pressure >= 1013 && pressure <= 1024) pressureScore = 100;
+    else if (pressure > 1024) pressureScore = 65;
+    else if (pressure >= 1005) pressureScore = 55;
+    else pressureScore = 25;
 
-    const month = new Date().getMonth() + 1;
-    let seasonScore = 50;
-    if (month >= 9 && month <= 11) seasonScore = 100;
-    else if (month >= 3 && month <= 5) seasonScore = 80;
-    else if (month >= 6 && month <= 8) seasonScore = 60;
+    // 季节评分：秋季 > 春季 > 冬季 > 夏季（夏季雷雨多，霞光不确定性高）
+    let seasonScore;
+    if (month >= 9 && month <= 11) seasonScore = 100;       // 秋
+    else if (month >= 3 && month <= 5) seasonScore = 85;     // 春
+    else if (month === 12 || month <= 2) seasonScore = 60;   // 冬
+    else seasonScore = 50;                                    // 夏
 
-    const total = cloudScore * 0.35 + humidityScore * 0.20 + windScore * 0.15
-                + precipScore * 0.15 + pressureScore * 0.10 + seasonScore * 0.05;
+    // 加权综合：云量最重要(35%)，降水反映雨后窗口(18%)，湿度(18%)，风速(12%)，气压(10%)，季节(7%)
+    const total = cloudScore * 0.35 + precipScore * 0.18 + humidityScore * 0.18
+                + windScore * 0.12 + pressureScore * 0.10 + seasonScore * 0.07;
 
     return Math.min(95, Math.round(total));
   },
@@ -649,6 +718,48 @@ const CalcEngine = {
     return { total, label, color, scores, improvement };
   }
 };
+
+// ===========================
+// 衍生预警 — 免费 API 无预警权限时，从天气描述推导
+// ===========================
+function deriveWarnings(weatherNow) {
+  const warnings = [];
+  const text = (weatherNow.text || '').toLowerCase();
+  const temp = parseInt(weatherNow.temp) || 20;
+  const windSpeed = parseInt(weatherNow.windSpeed) || 0;
+
+  if (text.includes('暴雨') || text.includes('大暴雨') || text.includes('特大暴雨')) {
+    warnings.push({ level: '红色', typeName: '暴雨', text: '当前有暴雨天气，请避免户外拍摄，注意器材防潮。远离河道、山坡等危险区域。' });
+  } else if (text.includes('大雨') || text.includes('中雨') || text.includes('阵雨')) {
+    warnings.push({ level: '黄色', typeName: '降雨', text: '当前有降雨天气，户外拍摄请注意器材防水，建议携带防雨罩。' });
+  }
+  if (text.includes('雷') || text.includes('暴')) {
+    warnings.push({ level: '橙色', typeName: '雷暴', text: '当前有雷暴天气，请勿在空旷高处使用三脚架，立即暂停户外拍摄。' });
+  }
+  if (text.includes('台风') || text.includes('飓风')) {
+    warnings.push({ level: '红色', typeName: '台风', text: '台风天气请待在室内，切勿外出拍摄。' });
+  }
+  if (temp >= 37) {
+    warnings.push({ level: '橙色', typeName: '高温', text: '当前气温 ≥37°C，户外拍摄注意防暑降温，器材避免长时间暴晒。' });
+  } else if (temp >= 35) {
+    warnings.push({ level: '黄色', typeName: '高温', text: '当前气温 ≥35°C，户外拍摄请注意防暑，多备饮用水。' });
+  }
+  if (temp <= -10) {
+    warnings.push({ level: '橙色', typeName: '严寒', text: '极寒天气，相机电池续航将大幅下降，请备足备用电池。' });
+  }
+  if (windSpeed >= 30) {
+    warnings.push({ level: '橙色', typeName: '大风', text: `当前风速 ${windSpeed}km/h，三脚架可能不稳，建议使用配重或手持拍摄。` });
+  } else if (windSpeed >= 20) {
+    warnings.push({ level: '黄色', typeName: '大风', text: `当前风速 ${windSpeed}km/h，长曝光请确保三脚架稳固。` });
+  }
+  if (text.includes('霾') || text.includes('沙') || text.includes('尘')) {
+    warnings.push({ level: '黄色', typeName: '低能见度', text: '当前有霾/沙尘，能见度低，远景拍摄效果差。建议尝试近景或氛围感创作，佩戴防护口罩。' });
+  }
+  if (text.includes('冰雹')) {
+    warnings.push({ level: '红色', typeName: '冰雹', text: '冰雹天气请立即寻找遮蔽处，保护好摄影器材！' });
+  }
+  return warnings;
+}
 
 // ===========================
 // 推荐引擎
@@ -1023,21 +1134,32 @@ function renderWarningBanner(warnings) {
     const iconMap = { '黄色': 'text-yellow-400', '橙色': 'text-orange-400', '红色': 'text-red-400' };
     const cls = colorMap[w.level] || 'border-yellow-600 bg-yellow-900/20';
     const iCls = iconMap[w.level] || 'text-yellow-400';
+    const derivedNote = w._derived ? '<div class="text-xs text-slate-500 mt-1">（根据天气数据自动推定）</div>' : '';
+    const pubInfo = w.pubTime ? `<div class="text-xs text-slate-500 mt-1">发布时间：${new Date(w.pubTime).toLocaleString('zh-CN')}</div>` : '';
     return `<div class="flex items-start gap-2 ${cls} border rounded-xl p-4 mb-2">
       <i class="fa fa-exclamation-triangle ${iCls} mt-0.5"></i>
       <div class="flex-1 min-w-0">
         <div class="font-bold text-slate-200 text-sm">${w.sender || ''} ${w.typeName || '天气预警'}</div>
-        <p class="text-sm text-slate-300 mt-1 line-clamp-3">${w.text || w.title || ''}</p>
-        ${w.pubTime ? `<div class="text-xs text-slate-500 mt-1">发布时间：${new Date(w.pubTime).toLocaleString('zh-CN')}</div>` : ''}
+        <p class="text-sm text-slate-300 mt-1">${w.text || w.title || ''}</p>
+        ${pubInfo}${derivedNote}
       </div>
     </div>`;
   }).join('');
 }
 
 function showSkeletons() {
-  const heights = { 'card-weather':'h-48', 'card-gauge':'h-48', 'card-metrics':'h-56', 'card-recommend':'h-44', 'card-light':'h-40', 'card-future':'h-40' };
+  const heights = { 'card-weather':'h-48', 'card-gauge':'h-48', 'card-metrics':'h-56' };
   Object.entries(heights).forEach(([id, h]) => {
     document.getElementById(id).innerHTML = `<div class="skeleton ${h} rounded-xl"></div>`;
+  });
+  // 只给当前激活的标签面板显示骨架
+  const activePanel = document.getElementById('card-recommend');
+  if (activePanel && !activePanel.classList.contains('hidden')) {
+    activePanel.innerHTML = '<div class="skeleton h-44 rounded-xl"></div>';
+  }
+  ['card-light','card-future'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.classList.contains('hidden')) el.innerHTML = '';
   });
 }
 
@@ -1120,6 +1242,53 @@ const App = {
     document.getElementById('btn-gps').addEventListener('touchend', function() { this.classList.remove('bg-amber-900/60'); });
     document.getElementById('settings-btn').addEventListener('click', () => this.showSetupOverlay());
     this.initPullToRefresh();
+    this.initTabBar();
+    this.initScrollReveal();
+  },
+
+  initTabBar() {
+    const tabs = document.querySelectorAll('#tab-bar .tab-btn');
+    const panels = {
+      recommend: document.getElementById('card-recommend'),
+      light: document.getElementById('card-light'),
+      future: document.getElementById('card-future'),
+    };
+    tabs.forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabs.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        Object.values(panels).forEach(p => p.classList.add('hidden'));
+        const key = btn.dataset.tab;
+        if (panels[key]) {
+          panels[key].classList.remove('hidden');
+          // 切换时触发该面板的渐入动画
+          panels[key].classList.remove('visible');
+          requestAnimationFrame(() => {
+            panels[key].classList.add('visible');
+          });
+        }
+      });
+    });
+  },
+
+  initScrollReveal() {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -20px 0px' });
+    document.querySelectorAll('.reveal-on-scroll').forEach(el => {
+      observer.observe(el);
+    });
+    // 初始可见元素立即显示
+    setTimeout(() => {
+      document.querySelectorAll('.reveal-on-scroll').forEach(el => {
+        const rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight) el.classList.add('visible');
+      });
+    }, 100);
   },
 
   share() {
@@ -1237,13 +1406,25 @@ const App = {
     if (ctx.isStorm) summaryParts.push('📡 注意天气变化');
     if (!summaryParts.length) summaryParts.push('条件一般，可选择性出行');
 
+    // 合并 API 预警与衍生预警
+    const apiWarnings = Array.isArray(warnings) ? warnings : [];
+    const derivedWarnings = deriveWarnings(weatherNow);
+    // 衍生预警不与 API 预警重复
+    const allWarnings = [...apiWarnings];
+    for (const dw of derivedWarnings) {
+      if (!apiWarnings.some(w => (w.typeName || '') === dw.typeName)) {
+        dw._derived = true;
+        allWarnings.push(dw);
+      }
+    }
+
     renderWeatherHero(weatherNow);
     renderPhotoGauge(photoIndex);
     renderMetricsGrid(ctx, weatherNow, moonInfo);
     renderRecommendCard(recs);
     renderLightTimeline(sunData || {});
     renderFutureDays(dailyData);
-    renderWarningBanner(warnings);
+    renderWarningBanner(allWarnings);
 
     document.getElementById('weather-update-time').textContent =
       `📍 ${this.currentCity.name} · 更新于 ${new Date().toLocaleTimeString('zh-CN')}`;
@@ -1383,14 +1564,10 @@ const App = {
   },
 
   clearSkeletonsWithHint(hint) {
-    const cards = ['card-weather','card-gauge','card-metrics','card-recommend','card-light','card-future'];
-    cards.forEach((id, i) => {
-      const card = document.getElementById(id);
-      if (i === 0) {
-        card.innerHTML = `<div class="text-center py-12 text-slate-500"><i class="fa fa-map-marker text-4xl mb-3 block"></i><p class="text-sm">${hint}</p><button class="mt-3 bg-golden text-slate-900 px-5 py-2 rounded-full text-sm font-bold" onclick="App.openCitySheet()">手动选择城市</button></div>`;
-      } else {
-        card.innerHTML = '';
-      }
+    const card = document.getElementById('card-weather');
+    card.innerHTML = `<div class="text-center py-12 text-slate-500"><i class="fa fa-map-marker text-4xl mb-3 block"></i><p class="text-sm">${hint}</p><button class="mt-3 bg-golden text-slate-900 px-5 py-2 rounded-full text-sm font-bold" onclick="App.openCitySheet()">手动选择城市</button></div>`;
+    ['card-gauge','card-metrics','card-recommend','card-light','card-future'].forEach(id => {
+      document.getElementById(id).innerHTML = '';
     });
   },
 
