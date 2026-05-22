@@ -228,7 +228,7 @@ tailwind.config = {
   <section id="card-warning" class="hidden"></section>
 
   <!-- 作者署名 -->
-  <div class="text-center text-xs text-slate-600 py-2">Made by <span class="text-slate-500">Vito Mak</span></div>
+  <div class="text-center text-xs text-slate-600 py-2">Made by <span class="text-slate-500">Vito Mak</span> · 数据来源 <span class="text-slate-600 underline decoration-dotted cursor-pointer hover:text-slate-400" onclick="App.showToast('气象数据来源：和风天气 API v7\n实时天气 · 逐小时预报 · 日出日落 · 月相 · 空气质量 · 3日预报\ncustom host: n43aara9tt.re.qweatherapi.com')">和风天气 API</span></div>
 </main>
 
 <!-- 城市选择面板遮罩 -->
@@ -980,8 +980,11 @@ function renderWeatherHero(data, ctx) {
   else if (temp <= 0) bgGradient = 'linear-gradient(135deg, #1a1f2e 0%, #1e293b 100%)';
   else bgGradient = 'linear-gradient(135deg, #1e293b 0%, #1a1a2e 100%)';
 
-  // 数据来源标注
-  const sourceBadge = `<span class="text-slate-600 text-xs" title="数据来源：和风天气 API">ⓘ 和风</span>`;
+  // 数据来源标注（点击可查看详情）
+  const sourceBadge = `<span class="text-slate-600 text-xs cursor-pointer hover:text-slate-400 underline decoration-dotted underline-offset-2" onclick="event.stopPropagation();App.showToast('气象数据来源：和风天气 API v7
+实时天气 · 逐小时预报 · 日出日落
+月相 · 空气质量 · 3日预报
+custom host: n43aara9tt.re.qweatherapi.com')">ⓘ 数据来源</span>`;
 
   card.className = 'photographer-card card-accent-top golden card-enter text-center py-5';
   card.style.background = bgGradient;
