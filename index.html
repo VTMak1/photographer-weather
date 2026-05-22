@@ -405,40 +405,127 @@ const CalcEngine = {
     return { level: '极差', color: '#EF4444', icon: 'times-circle', desc: '浓雾或严重污染，建议室内或微距拍摄', pct: 5 };
   },
 
-  // 朝霞/晚霞概率计算
-  // 核心原理：云量30-70%是火烧云最佳条件，再综合湿度判断
+  // 多维度能见度估算：QWeather 免费 API 的 vis 字段常返回最大值 30km（假数据）
+  // 综合天气文字、湿度、云量、风速交叉推算更真实的能见度
+  estimateVisibility(weatherNow, weather24h) {
+    const visRaw = parseFloat(weatherNow.vis);
+    // API 返回的 vis < 25 时较可能是真实测量值，直接使用
+    if (!isNaN(visRaw) && visRaw > 0 && visRaw < 25) return Math.round(visRaw);
+
+    const text = (weatherNow.text || '').toLowerCase();
+    const humidity = parseInt(weatherNow.humidity) || 50;
+    const cloud = parseInt(weatherNow.cloud) || 50;
+    const windSpeed = parseInt(weatherNow.windSpeed) || 0;
+    const pressure = parseInt(weatherNow.pressure) || 1013;
+
+    // 从天气文字推断基础能见度
+    let baseVis = 15; // 默认良好
+    if (text.includes('雾') || text.includes('霾')) baseVis = 1;
+    else if (text.includes('沙') || text.includes('尘') || text.includes('浮尘')) baseVis = 2;
+    else if (text.includes('雨') || text.includes('阵雨')) baseVis = 6;
+    else if (text.includes('毛毛雨') || text.includes(' drizzle')) baseVis = 4;
+    else if (text.includes('阴')) baseVis = 8;
+    else if (text.includes('雪')) baseVis = 3;
+    else if (text.includes('多云')) baseVis = 14;
+    else if (text.includes('晴')) baseVis = 18;
+
+    // 湿度修正：高湿度降低能见度
+    if (humidity > 90) baseVis -= 5;
+    else if (humidity > 80) baseVis -= 3;
+    else if (humidity > 70) baseVis -= 1;
+    else if (humidity < 40) baseVis += 1; // 干燥空气更清澈
+
+    // 云量修正：低云降低能见度
+    if (cloud > 90) baseVis -= 2;
+    else if (cloud < 20) baseVis += 1;
+
+    // 风速修正：微风有利于扩散
+    if (windSpeed > 15) baseVis += 2; // 风大吹散雾霾
+    else if (windSpeed < 5) baseVis -= 1; // 静风不利于扩散
+
+    // 气压修正：高气压通常天气晴朗
+    if (pressure > 1020) baseVis += 1;
+    else if (pressure < 1005) baseVis -= 1;
+
+    return Math.max(0.3, Math.min(22, Math.round(baseVis)));
+  },
+
+  // 朝霞/晚霞概率计算 - 多维度气象模型
+  // 原理：火烧云 = 中高云层(云量30-70%) + 低太阳角 + 适量气溶胶 + 稳定大气
+  // 综合 6 维度加权：云量(35%) 湿度(20%) 风速(15%) 降水因子(15%) 气压(10%) 季节(5%)
   getGlowProbability(hourlyData, isSunrise, weatherNow) {
-    // 扩大目标时段范围（日出前后/日落前后各3小时）
-    const targetHours = isSunrise ? [4, 5, 6, 7, 8] : [15, 16, 17, 18, 19];
-    let cloudSum = 0, humiditySum = 0, count = 0;
+    const targetHours = isSunrise ? [5, 6, 7, 8] : [16, 17, 18, 19];
+    let cloudSum = 0, humiditySum = 0, windSum = 0, count = 0;
     for (const h of hourlyData) {
       const hour = new Date(h.fxTime).getHours();
       if (targetHours.includes(hour)) {
         cloudSum += parseInt(h.cloud) || 0;
         humiditySum += parseInt(h.humidity) || 0;
+        windSum += parseInt(h.windSpeed) || parseInt(h.windScale) * 3 || 0;
         count++;
       }
     }
-    // 回退：如果逐小时数据覆盖不到目标时段（如晚上查晚霞），用当前天气数据
     if (count === 0 && weatherNow) {
-      const cloud = parseInt(weatherNow.cloud) || 50;
-      const humidity = parseInt(weatherNow.humidity) || 50;
-      cloudSum = cloud; humiditySum = humidity; count = 1;
+      cloudSum = parseInt(weatherNow.cloud) || 50;
+      humiditySum = parseInt(weatherNow.humidity) || 50;
+      windSum = parseInt(weatherNow.windSpeed) || 0;
+      count = 1;
     }
     if (count === 0) return 0;
     const avgCloud = cloudSum / count;
     const avgHumidity = humiditySum / count;
-    // 云量评分：30-70%最佳（有云才能烧，但不能全阴）
-    let cloudScore = 0;
-    if (avgCloud >= 30 && avgCloud <= 70) cloudScore = 1;
-    else if (avgCloud >= 10 && avgCloud <= 90) cloudScore = 0.6;
-    else cloudScore = 0.2;
-    // 湿度评分：40-70%最佳（太干无霞光，太湿有雾）
-    let humidityScore = 0;
-    if (avgHumidity >= 40 && avgHumidity <= 70) humidityScore = 1;
-    else if (avgHumidity >= 20 && avgHumidity <= 90) humidityScore = 0.6;
-    else humidityScore = 0.3;
-    return Math.round((cloudScore * 0.6 + humidityScore * 0.4) * 100);
+    const avgWind = windSum / count;
+    const text = (weatherNow?.text || '').toLowerCase();
+    const precip = parseFloat(weatherNow?.precip) || 0;
+    const pressure = parseInt(weatherNow?.pressure) || 1013;
+
+    // 1. 云量评分 (权重 0.35)：25-65%最佳（有云才能烧，但不能全阴）
+    let cloudScore;
+    if (avgCloud >= 25 && avgCloud <= 65) cloudScore = 100;
+    else if (avgCloud >= 15 && avgCloud <= 80) cloudScore = 65;
+    else if (avgCloud >= 5 && avgCloud <= 95) cloudScore = 30;
+    else cloudScore = 10;
+
+    // 2. 湿度评分 (权重 0.20)：40-65%形成优质散射粒子
+    let humidityScore;
+    if (avgHumidity >= 40 && avgHumidity <= 65) humidityScore = 100;
+    else if (avgHumidity >= 25 && avgHumidity <= 80) humidityScore = 70;
+    else if (avgHumidity >= 15 && avgHumidity <= 90) humidityScore = 35;
+    else humidityScore = 15;
+
+    // 3. 风速评分 (权重 0.15)：5-18km/h微风稳定云层
+    let windScore;
+    if (avgWind >= 5 && avgWind <= 18) windScore = 100;
+    else if (avgWind >= 2 && avgWind <= 25) windScore = 70;
+    else if (avgWind < 2) windScore = 50;
+    else windScore = 30;
+
+    // 4. 降水因子 (权重 0.15)：雨后天晴是霞光最佳窗口
+    let precipScore;
+    const isPostRain = (text.includes('晴') || text.includes('多云')) && precip === 0;
+    if (text.includes('雨') && precip > 0) precipScore = 20;
+    else if (isPostRain) precipScore = 100;
+    else if (precip === 0 && !text.includes('雨')) precipScore = 60;
+    else precipScore = 30;
+
+    // 5. 气压 (权重 0.10)：1015-1025hPa 稳定高压有利
+    let pressureScore;
+    if (pressure >= 1015 && pressure <= 1025) pressureScore = 100;
+    else if (pressure > 1025) pressureScore = 70;
+    else if (pressure >= 1005) pressureScore = 60;
+    else pressureScore = 30;
+
+    // 6. 季节修正 (权重 0.05)：秋季空气最清澈
+    const month = new Date().getMonth() + 1;
+    let seasonScore = 50;
+    if (month >= 9 && month <= 11) seasonScore = 100;
+    else if (month >= 3 && month <= 5) seasonScore = 80;
+    else if (month >= 6 && month <= 8) seasonScore = 60;
+
+    const total = cloudScore * 0.35 + humidityScore * 0.20 + windScore * 0.15
+                + precipScore * 0.15 + pressureScore * 0.10 + seasonScore * 0.05;
+
+    return Math.min(95, Math.round(total));
   }
 };
 
@@ -447,22 +534,61 @@ const CalcEngine = {
 // ===========================
 const RecommendEngine = {
   themes: [
+    // ——— 重量级 (weight 5) ———
     { id: 'sunset-city', name: '城市日落风光', weight: 5, icon: 'sun-o',
-      score: ctx => ctx.sunsetGlow * 0.5 + ctx.visibilityScore * 0.3 + (ctx.isClear ? 20 : 0) },
+      desc: '晚霞概率高，能见度佳，黄金时刻出片率极高',
+      score: ctx => ctx.sunsetGlow * 0.5 + ctx.visibilityScore * 0.35 + (ctx.isClear ? 15 : 0) },
+    { id: 'golden-hour-ls', name: '黄金时刻长焦', weight: 5, icon: 'camera',
+      desc: '低角度暖光穿透大气层，远景层次感最强',
+      score: ctx => (ctx.isClear ? 40 : 10) + (ctx.visibilityKm > 10 ? 35 : 15) + (ctx.cloudCover < 30 ? 25 : 5) },
+
+    // ——— 中量级 (weight 4) ———
     { id: 'blue-hour-city', name: '蓝调城市夜景', weight: 4, icon: 'moon-o',
-      score: ctx => (ctx.cloudCover < 30 ? 40 : 10) + (ctx.windSpeed < 15 ? 30 : 10) + (ctx.isClear ? 20 : 0) },
-    { id: 'morning-fog', name: '晨雾风光', weight: 4, icon: 'cloud',
-      score: ctx => (ctx.visibilityKm >= 1 && ctx.visibilityKm <= 5 ? 50 : 10) + (ctx.humidity > 70 ? 30 : 10) + (ctx.isMorning ? 20 : 0) },
+      desc: '华灯初上，天空呈现深蓝渐变，城市风光黄金20分钟',
+      score: ctx => (ctx.cloudCover < 30 ? 40 : 12) + (ctx.windSpeed < 15 ? 30 : 10) + (ctx.isClear ? 20 : 0) },
+    { id: 'sunset-timelapse', name: '火烧云延时', weight: 4, icon: 'film',
+      desc: '霞光概率 > 70%，配合中高云层出片效果震撼',
+      score: ctx => (ctx.sunsetGlow > 70 ? 55 : ctx.sunsetGlow * 0.5) + (ctx.cloudCover > 20 && ctx.cloudCover < 70 ? 30 : 5) },
+    { id: 'star-trail', name: '星空摄影', weight: 4, icon: 'star',
+      desc: '云量极低、湿度低，适合星轨和银河拍摄',
+      score: ctx => (ctx.cloudCover < 10 ? 55 : ctx.cloudCover < 25 ? 30 : 5) + (ctx.humidity < 55 ? 30 : 10) + (ctx.windSpeed < 10 ? 15 : 0) },
+    { id: 'rainbow-chase', name: '彩虹追逐', weight: 4, icon: 'smile-o',
+      desc: '雨后太阳低角出彩虹的概率较高',
+      score: ctx => (ctx.isPostRain && ctx.isClear ? 60 : ctx.isPostRain ? 40 : 5) + (ctx.humidity > 60 ? 25 : 10) },
+
+    // ——— 标准级 (weight 3) ———
+    { id: 'morning-fog', name: '晨雾风光', weight: 3, icon: 'cloud',
+      desc: '低能见度配合晨光，打造水墨画般的氛围',
+      score: ctx => (ctx.visibilityKm >= 0.5 && ctx.visibilityKm <= 5 ? 50 : 8) + (ctx.humidity > 75 ? 30 : 10) + (ctx.isMorning ? 20 : 0) },
     { id: 'rain-fresh', name: '雨后清新街拍', weight: 3, icon: 'tint',
-      score: ctx => (ctx.rainRecent ? 50 : 0) + (ctx.visibilityKm > 5 ? 30 : 10) },
+      desc: '雨洗尘埃，路面反光，色彩饱和度最高',
+      score: ctx => (ctx.isPostRain ? 55 : 0) + (ctx.visibilityKm > 5 ? 25 : 10) + (ctx.windSpeed < 15 ? 15 : 5) },
     { id: 'arch-shadow', name: '建筑几何光影', weight: 3, icon: 'building-o',
-      score: ctx => (ctx.isClear ? 50 : 10) + (ctx.isGoldenHour ? 30 : 0) },
+      desc: '强烈阳光投射出锐利几何阴影',
+      score: ctx => (ctx.isClear ? 55 : 10) + (ctx.cloudCover < 15 ? 30 : 5) + (ctx.windSpeed < 20 ? 15 : 0) },
     { id: 'portrait-soft', name: '人像柔光', weight: 3, icon: 'user-o',
-      score: ctx => (ctx.cloudCover > 40 && ctx.cloudCover < 80 ? 40 : 20) + (ctx.windSpeed < 10 ? 30 : 10) },
+      desc: '云层充当天然柔光箱，光线均匀柔和',
+      score: ctx => (ctx.cloudCover > 40 && ctx.cloudCover < 80 ? 45 : 15) + (ctx.windSpeed < 12 ? 30 : 10) + (ctx.humidity < 80 ? 15 : 0) },
+    { id: 'water-mirror', name: '水面倒影', weight: 3, icon: 'image',
+      desc: '低风速水面如镜，完美对称构图',
+      score: ctx => (ctx.windSpeed < 8 ? 55 : ctx.windSpeed < 15 ? 30 : 5) + (ctx.isClear ? 30 : 10) + (ctx.visibilityKm > 5 ? 15 : 0) },
     { id: 'macro-eco', name: '微距生态', weight: 3, icon: 'leaf',
-      score: ctx => (ctx.humidity > 60 ? 40 : 15) + (ctx.windSpeed < 10 ? 30 : 10) + (ctx.rainRecent ? 20 : 0) },
+      desc: '高湿度+低风速，昆虫和露珠出片最佳',
+      score: ctx => (ctx.humidity > 60 ? 40 : 15) + (ctx.windSpeed < 8 ? 35 : 10) + (ctx.isPostRain ? 20 : 0) },
+
+    // ——— 轻量级 (weight 2) ———
+    { id: 'storm-cloud', name: '风暴云团', weight: 2, icon: 'bolt',
+      desc: '雷暴边缘的戏剧性云层，适合黑白大画幅',
+      score: ctx => (ctx.isStorm ? 60 : 0) + (ctx.windSpeed > 15 ? 25 : 5) + (ctx.visibilityKm > 3 ? 10 : 0) },
+    { id: 'autumn-color', name: '秋色风光', weight: 2, icon: 'tree',
+      desc: '秋季+大温差+蓝天，秋叶色彩最浓烈',
+      score: ctx => (ctx.isAutumn ? 50 : 0) + (ctx.isClear ? 30 : 10) + (ctx.tempDiff > 8 ? 20 : 5) },
+    { id: 'frost-ice', name: '雾凇冰挂', weight: 2, icon: 'snowflake-o',
+      desc: '零下温度+高湿度，树枝结冰挂的景象',
+      score: ctx => (ctx.isCold && ctx.humidity > 70 ? 60 : 0) + (ctx.windSpeed < 10 ? 25 : 5) },
     { id: 'bw-doc', name: '黑白纪实', weight: 2, icon: 'adjust',
-      score: ctx => (ctx.isOvercast ? 45 : 15) + (ctx.visibilityKm > 3 ? 20 : 5) }
+      desc: '阴天高对比度，适合街头黑白人文',
+      score: ctx => (ctx.isOvercast ? 50 : 15) + (ctx.visibilityKm > 3 ? 20 : 5) + (ctx.windSpeed < 20 ? 15 : 0) }
   ],
 
   getRecommendations(context) {
@@ -471,6 +597,7 @@ const RecommendEngine = {
       points: t.score(context) * (t.weight / 5)
     }));
     scored.sort((a, b) => b.points - a.points);
+    _allScoredThemes = scored;
     return scored.slice(0, 3);
   }
 };
@@ -504,6 +631,8 @@ function getWeatherBg(iconCode) {
   return gradients[iconCode] || gradients['100'];
 }
 
+let _hourlyData = [];
+
 function renderWeatherCard(data) {
   const card = document.getElementById('card-weather');
   const iconCode = data.icon || '100';
@@ -521,7 +650,48 @@ function renderWeatherCard(data) {
       </div>
       <div class="text-xs text-gray-400 mt-3" id="weather-update-time"></div>
     </div>
+    <div id="hourly-toggle" class="flex items-center justify-center gap-1 py-2 mt-2 border-t border-white/40 cursor-pointer touch-target text-sm text-gray-500 hover:text-gray-700 transition">
+      <i class="fa fa-clock-o"></i>
+      <span>逐小时预报</span>
+      <i id="hourly-chevron" class="fa fa-chevron-down text-xs"></i>
+    </div>
+    <div id="hourly-panel" class="hidden mt-2">
+      <div id="hourly-scroll" class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1"></div>
+    </div>
   `;
+  // 绑定逐小时展开
+  document.getElementById('hourly-toggle').addEventListener('click', () => {
+    const panel = document.getElementById('hourly-panel');
+    const chevron = document.getElementById('hourly-chevron');
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      chevron.className = 'fa fa-chevron-up text-xs';
+      renderHourlyItems();
+    } else {
+      panel.classList.add('hidden');
+      chevron.className = 'fa fa-chevron-down text-xs';
+    }
+  });
+}
+
+function renderHourlyItems() {
+  const container = document.getElementById('hourly-scroll');
+  if (!_hourlyData.length) {
+    container.innerHTML = '<div class="text-xs text-gray-400 py-2">暂无逐小时数据</div>';
+    return;
+  }
+  container.innerHTML = _hourlyData.slice(0, 24).map(h => {
+    const time = new Date(h.fxTime);
+    const hour = time.getHours();
+    const now = new Date().getHours();
+    const isNow = hour === now;
+    return `<div class="flex-shrink-0 w-14 text-center ${isNow ? 'bg-white/60 rounded-lg p-1' : 'p-1'}">
+      <div class="text-xs text-gray-500">${hour}:00</div>
+      <div class="text-lg my-1">${getWeatherEmoji(h.icon)}</div>
+      <div class="text-sm font-bold text-gray-700">${h.temp}°</div>
+      <div class="text-xs text-gray-400">${h.windDir || ''}${h.windScale || ''}级</div>
+    </div>`;
+  }).join('');
 }
 
 function renderLightCard(sunData) {
@@ -627,6 +797,8 @@ function renderGlowCard(sunriseProb, sunsetProb) {
   `;
 }
 
+let _allScoredThemes = [];
+
 function renderRecommendCard(recommendations) {
   const card = document.getElementById('card-recommend');
   card.className = 'photographer-card card-green card-enter';
@@ -637,25 +809,61 @@ function renderRecommendCard(recommendations) {
     <div class="flex items-center gap-2 mb-4">
       <i class="fa fa-camera text-green-500 text-xl"></i>
       <span class="font-bold text-gray-700 text-lg">今日适合拍摄</span>
+      <button id="btn-all-themes" class="ml-auto text-xs text-green-600 bg-green-50 px-3 py-1.5 rounded-full hover:bg-green-100 transition touch-target">
+        查看全部 <i class="fa fa-chevron-down"></i>
+      </button>
     </div>
     <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-5 text-center mb-3">
       <div class="text-4xl mb-2"><i class="fa fa-${best.icon} text-green-500"></i></div>
       <div class="text-xl font-bold text-gray-800 mb-1">${best.name}</div>
       <div class="text-golden text-lg mb-2">${stars}</div>
-      <div class="text-sm text-gray-500">综合天气数据智能推荐</div>
+      <div class="text-sm text-gray-500">${best.desc || ''}</div>
     </div>
     ${recommendations.length > 1 ? `
     <div class="text-sm text-gray-500 mb-2">📋 次选方案</div>
     <div class="space-y-2">
       ${recommendations.slice(1).map(r => `
-        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-          <i class="fa fa-${r.icon} text-gray-400 text-lg"></i>
-          <span class="flex-1 font-medium text-gray-600">${r.name}</span>
-          <span class="text-xs text-gray-400">${Math.round(r.points)}分</span>
+        <div class="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
+          <i class="fa fa-${r.icon} text-gray-400 text-lg mt-0.5"></i>
+          <div class="flex-1 min-w-0">
+            <div class="font-medium text-gray-600 text-sm">${r.name}</div>
+            <div class="text-xs text-gray-400 mt-0.5">${r.desc || ''}</div>
+          </div>
+          <span class="text-xs text-gray-400 whitespace-nowrap">${Math.round(r.points)}分</span>
         </div>
       `).join('')}
     </div>` : ''}
+    <div id="all-themes-panel" class="hidden mt-3 pt-3 border-t border-gray-100">
+      <div class="text-sm text-gray-500 mb-2">📸 全部拍摄主题评分</div>
+      <div id="all-themes-list" class="space-y-1.5 max-h-64 overflow-y-auto"></div>
+    </div>
   `;
+
+  // 绑定查看全部按钮
+  document.getElementById('btn-all-themes').addEventListener('click', () => {
+    const panel = document.getElementById('all-themes-panel');
+    const btn = document.getElementById('btn-all-themes');
+    const isOpen = !panel.classList.contains('hidden');
+    if (isOpen) {
+      panel.classList.add('hidden');
+      btn.innerHTML = '查看全部 <i class="fa fa-chevron-down"></i>';
+    } else {
+      panel.classList.remove('hidden');
+      btn.innerHTML = '收起 <i class="fa fa-chevron-up"></i>';
+      if (_allScoredThemes.length > 0) {
+        document.getElementById('all-themes-list').innerHTML = _allScoredThemes.map(t => {
+          const barW = Math.min(100, t.points);
+          const barColor = t.points >= 60 ? 'bg-green-400' : t.points >= 40 ? 'bg-amber-400' : 'bg-gray-300';
+          return `<div class="flex items-center gap-2 text-sm">
+            <i class="fa fa-${t.icon} text-gray-400 w-5 text-center"></i>
+            <span class="flex-1 text-gray-600 truncate">${t.name}</span>
+            <span class="text-xs text-gray-400 w-8 text-right">${Math.round(t.points)}</span>
+            <div class="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full ${barColor} rounded-full" style="width:${barW}%"></div></div>
+          </div>`;
+        }).join('');
+      }
+    }
+  });
 }
 
 function showSkeletons() {
@@ -790,10 +998,9 @@ const App = {
 
   updateUI(weatherNow, weather24h, sunData, airNow) {
     renderWeatherCard(weatherNow);
+    _hourlyData = weather24h || [];
 
-    const visRaw = parseFloat(weatherNow.vis);
-    const visibilityKm = (!isNaN(visRaw) && visRaw > 0) ? visRaw
-      : (airNow && airNow.pm2p5 ? Math.max(0.5, 30 - parseFloat(airNow.pm2p5) * 0.1) : 10);
+    const visibilityKm = CalcEngine.estimateVisibility(weatherNow, weather24h);
 
     renderLightCard(sunData || {});
     renderVisibilityCard(Math.round(visibilityKm));
@@ -803,7 +1010,7 @@ const App = {
     const sunsetProb = CalcEngine.getGlowProbability(hourlyData, false, weatherNow);
     renderGlowCard(sunriseProb, sunsetProb);
 
-    const ctx = this.buildContext(weatherNow, visibilityKm, sunriseProb, sunsetProb, sunData);
+    const ctx = this.buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData);
     const recs = RecommendEngine.getRecommendations(ctx);
     renderRecommendCard(recs);
 
@@ -811,10 +1018,31 @@ const App = {
       `📍 ${this.currentCity.name} · 更新于 ${new Date().toLocaleTimeString('zh-CN')}`;
   },
 
-  buildContext(weatherNow, visibilityKm, sunriseProb, sunsetProb, sunData) {
+  buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData) {
     const icon = weatherNow.icon || '100';
     const now = new Date();
     const hour = now.getHours();
+    const month = now.getMonth() + 1;
+    const text = (weatherNow.text || '').toLowerCase();
+    const precip = parseFloat(weatherNow.precip) || 0;
+    const temp = parseInt(weatherNow.temp) || 15;
+
+    // 雨后转晴：当前晴/多云 + 无降水 + 近24h有雨
+    const isPostRain = (text.includes('晴') || text.includes('多云')) && precip === 0 && !text.includes('雨');
+    // 雷暴天气
+    const isStorm = text.includes('雷') || text.includes('暴');
+    // 严寒
+    const isCold = temp < 0;
+    // 秋季 (9-11月)
+    const isAutumn = month >= 9 && month <= 11;
+
+    // 昼夜温差：从逐小时预报中提取
+    let tempDiff = 8; // 默认值
+    if (weather24h && weather24h.length > 0) {
+      const temps = weather24h.map(h => parseInt(h.temp) || 0).filter(t => t !== 0);
+      if (temps.length >= 2) tempDiff = Math.max(...temps) - Math.min(...temps);
+    }
+
     return {
       sunsetGlow: sunsetProb,
       sunriseGlow: sunriseProb,
@@ -827,7 +1055,13 @@ const App = {
       humidity: parseInt(weatherNow.humidity) || 50,
       isMorning: hour >= 5 && hour <= 9,
       isGoldenHour: false,
-      rainRecent: (weatherNow.text || '').includes('雨')
+      rainRecent: text.includes('雨'),
+      isPostRain,
+      isStorm,
+      isCold,
+      isAutumn,
+      tempDiff,
+      weatherText: weatherNow.text || ''
     };
   },
 
