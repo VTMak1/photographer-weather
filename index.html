@@ -126,6 +126,10 @@ tailwind.config = {
     mask: radial-gradient(circle at 50% 100%, transparent 56%, black 58%);
     -webkit-mask: radial-gradient(circle at 50% 100%, transparent 56%, black 58%);
   }
+  @media (min-width: 768px) {
+    .aperture-ring { width:240px; height:120px; border-radius:240px 240px 0 0; }
+    .gauge-hero-score { font-size:120px; }
+  }
   /* 光圈叶片刻度 */
   .aperture-ring-inner {
     position: relative;
@@ -337,7 +341,7 @@ tailwind.config = {
 </header>
 
 <!-- 主内容区 -->
-<main id="main-content" class="pt-10 pb-20 px-4 max-w-lg mx-auto space-y-3">
+<main id="main-content" class="pt-10 pb-20 px-4 sm:px-6 max-w-lg md:max-w-2xl lg:max-w-3xl mx-auto space-y-3 md:space-y-4">
   <!-- 下拉刷新指示器 -->
   <div id="pull-indicator" class="text-center text-xs text-slate-500 py-2 opacity-0 transition-opacity duration-200">
     <i class="fa fa-arrow-down"></i> 下拉刷新
@@ -1302,7 +1306,7 @@ function renderMetricsGrid(ctx, weatherNow, moonInfo, sunData) {
       hi:false, cls:'bg-slate-800/40', vCls:'text-slate-200' }
   ];
 
-  card.innerHTML = `<div class="grid grid-cols-2 gap-3">${cellData.map(c => `
+  card.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-4 gap-3">${cellData.map(c => `
     <div class="text-center p-4 rounded-2xl cursor-pointer active:scale-95 transition-transform ${c.cls}" onclick="App.showToast('${c.tip.replace(/'/g,"\\'")}')">
       <div class="text-2xl mb-1">${c.icon}</div>
       <div class="text-2xl font-bold ${c.vCls}">${c.val}<span class="text-sm text-slate-500 font-normal ml-0.5">${c.unit||''}</span></div>
