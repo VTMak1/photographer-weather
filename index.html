@@ -1534,10 +1534,10 @@ function renderMetricsGrid(ctx, weatherNow, moonInfo, sunData) {
   };
   const cellData = [
     { icon:'🔥', val:`${ctx.sunsetGlow}%`, label:glowLabels.sunsetLabel, sub: glowLabels.sunsetInBuffer ? '进行中' : ssLabel, glow:ctx.sunsetGlow,
-      tip: (glowLabels.sunsetInBuffer ? '⚠️ 日落已过，晚霞可能正在发生或已结束。以下为事件前的预测数据，仅供参考：\n\n' : '') + `10维度火烧云预测模型：高云(15%)、辐射质量(10%)、能见度(15%)、雨后初晴(12%)、湿度(10%)、风速(8%)、季节(8%)、气压(7%)、中云(10%)、低云(5%)。数据源：${dataSrc}。`,
+      tip: (glowLabels.sunsetInBuffer ? '⚠️ 日落已过，晚霞可能正在发生或已结束。以下为事件前的预测数据，仅供参考：\\n\\n' : '') + `10维度火烧云预测模型：高云(15%)、辐射质量(10%)、能见度(15%)、雨后初晴(12%)、湿度(10%)、风速(8%)、季节(8%)、气压(7%)、中云(10%)、低云(5%)。数据源：${dataSrc}。`,
       vCls: ctx.sunsetGlow >= 70 ? 'text-golden' : ctx.sunsetGlow >= 50 ? 'text-amber-400' : 'text-slate-400' },
     { icon:'🌅', val:`${ctx.sunriseGlow}%`, label:glowLabels.sunriseLabel, sub: glowLabels.sunriseInBuffer ? '进行中' : srLabel, glow:ctx.sunriseGlow,
-      tip: (glowLabels.sunriseInBuffer ? '⚠️ 日出已过，朝霞可能正在发生或已结束。以下为事件前的预测数据，仅供参考：\n\n' : '') + `朝霞湿度通常更高，颜色偏粉红；晚霞云层更活跃，颜色偏橙红。同一10维火烧云模型独立计算早晚。数据源：${dataSrc}。`,
+      tip: (glowLabels.sunriseInBuffer ? '⚠️ 日出已过，朝霞可能正在发生或已结束。以下为事件前的预测数据，仅供参考：\\n\\n' : '') + `朝霞湿度通常更高，颜色偏粉红；晚霞云层更活跃，颜色偏橙红。同一10维火烧云模型独立计算早晚。数据源：${dataSrc}。`,
       vCls: ctx.sunriseGlow >= 70 ? 'text-golden' : ctx.sunriseGlow >= 50 ? 'text-amber-400' : 'text-slate-400' },
     { icon:'👁️', val:`${ctx.visibilityKm}`, unit:'km', label:'能见度', sub:vis.level,
       tip:`${vis.desc}。优先API实测值，无数据时由天气文字+露点差+湿度+云量+风速+气压交叉估算。`,
