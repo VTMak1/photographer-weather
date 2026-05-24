@@ -180,6 +180,20 @@ tailwind.config = {
     -webkit-transform: translateZ(0);
     font-variant-numeric: tabular-nums;
   }
+  /* 刷新按钮旋转 */
+  @keyframes spin360 { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .spin-icon { animation: spin360 0.45s ease-out; }
+  /* 时间线红点脉冲 */
+  @keyframes dotPulse { 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.4); } }
+  .timeline-dot { animation: dotPulse 2.2s ease-in-out infinite; transform-origin: center; }
+  /* 霞光高概率呼吸 */
+  @keyframes glowBreathe { 0%,100%{ box-shadow: 0 0 6px rgba(245,158,11,0.15); } 50%{ box-shadow: 0 0 22px rgba(245,158,11,0.5); } }
+  .glow-breathe { animation: glowBreathe 3s ease-in-out infinite; }
+  /* 温度刷新微弹 */
+  @keyframes tempBreathe { 0%{ transform:scale(1); } 50%{ transform:scale(1.06); } 100%{ transform:scale(1); } }
+  .temp-pop { animation: tempBreathe 0.5s cubic-bezier(0.34,1.56,0.64,1); display:inline-block; }
+  /* 未来3日卡片按压微倾斜 */
+  .future-day-item:active { transform: perspective(600px) rotateX(2deg) scale(0.96); transition: transform 0.1s ease; }
   body {
     font-variant-numeric: tabular-nums;
   }
@@ -426,7 +440,7 @@ tailwind.config = {
 </div>
 
 <!-- Toast 轻提示 -->
-<div id="toast" class="fixed bottom-28 inset-x-0 z-[70] flex justify-center pointer-events-none opacity-0 transition-opacity duration-300">
+<div id="toast" class="fixed bottom-28 inset-x-0 z-[70] flex justify-center pointer-events-none opacity-0" style="transition: opacity 0.3s ease, transform 0.3s ease; transform: translateY(12px);">
   <div class="bg-slate-700 text-slate-200 text-sm px-5 py-3 rounded-2xl shadow-xl max-w-sm text-center border border-slate-600 whitespace-pre-line"></div>
 </div>
 
@@ -1169,11 +1183,15 @@ function renderWeatherHero(data, ctx) {
 
   card.className = 'photographer-card card-accent-top golden card-enter py-4';
   card.style.background = '';
+  // 检测温度变化触发弹跳
+  const newTemp = parseInt(data.temp) || 0;
+  const tempChanged = (this._lastTemp !== undefined && this._lastTemp !== newTemp);
+  this._lastTemp = newTemp;
   card.innerHTML = `
     <div class="flex items-center gap-2">
       <span class="text-3xl">${getWeatherEmoji(iconCode)}</span>
       <div class="flex items-baseline gap-1">
-        <span class="text-3xl font-bold text-slate-100">${data.temp}°</span>
+        <span class="text-3xl font-bold text-slate-100${tempChanged ? ' temp-pop' : ''}">${data.temp}°</span>
         <span class="text-sm text-slate-400">${data.text}</span>
       </div>
       <div class="ml-auto flex items-center gap-2">
@@ -1306,14 +1324,16 @@ function renderMetricsGrid(ctx, weatherNow, moonInfo, sunData) {
       hi:false, cls:'bg-slate-800/40', vCls:'text-slate-200' }
   ];
 
-  card.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-4 gap-3">${cellData.map(c => `
-    <div class="text-center p-4 rounded-2xl cursor-pointer active:scale-95 transition-transform ${c.cls}" onclick="App.showToast('${c.tip.replace(/'/g,"\\'")}')">
+  card.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-4 gap-3">${cellData.map((c, i) => {
+    const isHighGlow = (i < 2) && (i === 0 ? ctx.sunsetGlow >= 70 : ctx.sunriseGlow >= 70);
+    return `
+    <div class="text-center p-4 rounded-2xl cursor-pointer active:scale-95 transition-transform ${c.cls}${isHighGlow ? ' glow-breathe' : ''}" onclick="App.showToast('${c.tip.replace(/'/g,"\\'")}')">
       <div class="text-2xl mb-1">${c.icon}</div>
       <div class="text-2xl font-bold ${c.vCls}">${c.val}<span class="text-sm text-slate-500 font-normal ml-0.5">${c.unit||''}</span></div>
       <div class="text-xs text-slate-500 mt-0.5">${c.label}</div>
       <div class="text-xs font-medium mt-1 ${c.hi?'text-golden':'text-slate-400'}">${c.sub}</div>
     </div>
-  `).join('')}</div>`;
+  `}).join('')}</div>`;
 }
 
 function renderLightTimeline(sunData) {
@@ -1356,7 +1376,7 @@ function renderLightTimeline(sunData) {
       <div class="h-4 rounded-full overflow-hidden relative" style="background:linear-gradient(to right, #6366F1 0%, #6366F1 12%, #F59E0B 22%, #FDE68A 38%, #FDE68A 62%, #F59E0B 78%, #6366F1 88%, #6366F1 100%)">
         <!-- 刻度标记 -->
         ${[12,22,38,62,78,88].map(p => `<div class="absolute top-0 w-px h-full bg-white/15" style="left:${p}%"></div>`).join('')}
-        <div class="absolute top-0 w-1.5 h-4 bg-red-400 rounded-full shadow" style="left:${Math.max(1, Math.min(98, posPct))}%"></div>
+        <div class="absolute top-0 w-1.5 h-4 bg-red-400 rounded-full shadow timeline-dot" style="left:${Math.max(1, Math.min(98, posPct))}%"></div>
       </div>
       <div class="flex justify-between text-xs text-slate-500 mt-1">
         <span>蓝调</span><span>黄金</span><span>日常</span><span>黄金</span><span>蓝调</span>
@@ -1391,7 +1411,7 @@ function renderRecommendCard(recommendations) {
         <i class="fa fa-chevron-up collapsible-chevron flex-shrink-0 ml-auto"></i>
       </div>
       <button id="btn-all-themes" class="text-xs text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full hover:bg-emerald-400/20 transition touch-target flex-shrink-0 ml-2" onclick="event.stopPropagation()">
-        查看全部 <i class="fa fa-chevron-down"></i>
+        查看全部 <i class="fa fa-chevron-down transition-transform duration-300"></i>
       </button>
     </div>
     <div class="collapsible-body">
@@ -1427,13 +1447,16 @@ function renderRecommendCard(recommendations) {
     e.stopPropagation();
     const panel = document.getElementById('all-themes-panel');
     const btn = document.getElementById('btn-all-themes');
+    const arrow = btn.querySelector('.fa');
     const isOpen = !panel.classList.contains('hidden');
     if (isOpen) {
       panel.classList.add('hidden');
-      btn.innerHTML = '查看全部 <i class="fa fa-chevron-down"></i>';
+      btn.childNodes[0].textContent = '查看全部 ';
+      arrow.classList.remove('rotate-180');
     } else {
       panel.classList.remove('hidden');
-      btn.innerHTML = '收起 <i class="fa fa-chevron-up"></i>';
+      btn.childNodes[0].textContent = '收起 ';
+      arrow.classList.add('rotate-180');
       if (_allScoredThemes.length > 0) {
         document.getElementById('all-themes-list').innerHTML = _allScoredThemes.map(t => {
           const barW = Math.min(100, t.points);
@@ -1508,7 +1531,7 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
           const dayBadge = isBest
             ? '<span class="text-xs text-golden font-bold bg-golden/20 px-1.5 py-0.5 rounded-full ml-0.5 whitespace-nowrap">🏆 最佳</span>'
             : '';
-          return `<div class="text-center p-3 rounded-2xl ${cardCls}">
+          return `<div class="text-center p-3 rounded-2xl future-day-item ${cardCls}">
             <div class="text-xs text-slate-500 mb-1 whitespace-nowrap">${s.day}${dayBadge}</div>
             <div class="text-xl mb-1">${getWeatherEmoji(s.icon)}</div>
             <div class="font-bold text-slate-200 text-sm">${s.tempMax}°/${s.tempMin}°</div>
@@ -1639,7 +1662,13 @@ const App = {
 
   bindEvents() {
     document.getElementById('city-trigger').addEventListener('click', () => this.openCitySheet());
-    document.getElementById('refresh-btn').addEventListener('click', () => this.refresh());
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+      const icon = document.querySelector('#refresh-btn .fa-refresh');
+      icon.classList.remove('spin-icon');
+      void icon.offsetWidth; // 强制回流重触发动画
+      icon.classList.add('spin-icon');
+      this.refresh();
+    });
     document.getElementById('share-btn').addEventListener('click', () => this.share());
     document.getElementById('btn-gps').addEventListener('click', () => this.useGPS());
     document.getElementById('city-search-input').addEventListener('input', e => this.handleSearch(e.target.value));
@@ -1697,8 +1726,12 @@ const App = {
     const el = document.getElementById('toast');
     el.firstElementChild.textContent = msg;
     el.style.opacity = '1';
+    el.style.transform = 'translateY(0)';
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 2200);
+    this._toastTimer = setTimeout(() => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(12px)';
+    }, 2200);
   },
 
   showDetail(msg) {
@@ -1865,6 +1898,18 @@ const App = {
     // 设置天色主题
     const skyType = getSkyType(weatherNow, sunData?.sunrise, sunData?.sunset);
     document.body.setAttribute('data-sky', skyType);
+
+    // 卡片依次入场
+    this.staggerCards();
+  },
+
+  staggerCards() {
+    const cards = document.querySelectorAll('.card-enter');
+    cards.forEach((card, i) => {
+      card.style.animation = 'none';
+      void card.offsetWidth;
+      card.style.animation = `cardEnter 0.4s ${i * 0.06}s cubic-bezier(0.16,1,0.3,1) both`;
+    });
   },
 
   buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo) {
