@@ -1404,9 +1404,12 @@ function renderPhotoGauge(photoIndex, sunData, omActive) {
         </div>`;
       }).join('')}
     </div>
-    <div class="mt-3 flex items-center justify-center gap-1.5">
-      <span class="inline-block w-1.5 h-1.5 rounded-full ${omActive ? 'bg-emerald-400' : 'bg-amber-400'}"></span>
-      <span class="text-xs ${omActive ? 'text-emerald-400/70' : 'text-amber-400/70'}">${dataSrc}</span>
+    <div class="mt-3 flex items-center justify-center">
+      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border cursor-pointer active:scale-95 transition-transform ${omActive ? 'bg-emerald-400/8 border-emerald-400/30 text-emerald-400' : 'bg-amber-400/8 border-amber-400/30 text-amber-400'}" onclick="App.showToast('${omActive ? '当前使用 Open-Meteo 免费 API 提供的分层云量（低/中/高云）、实测能见度、直射/散射辐射数据，霞光预测精度显著提升' : 'Open-Meteo 请求超时或网络不可达，已回退为和风天气基础气象数据。霞光预测仍可参考，但缺少分层云量和辐射实测，精度有所下降。如需高精度数据，请尝试使用 VPN 或在非中国大陆网络环境下打开'}')">
+        <span class="inline-block w-1.5 h-1.5 rounded-full ${omActive ? 'bg-emerald-400' : 'bg-amber-400'}"></span>
+        ${omActive ? 'Open-Meteo 高精度' : '和风天气基础数据'}
+        <i class="fa fa-info-circle text-[10px] opacity-60"></i>
+      </div>
     </div>
   `;
 
@@ -1954,11 +1957,17 @@ const App = {
       API.getMoonPhase(locationId).then(d => results.moonData = d).catch(e => {}),
       API.getWeather3d(locationId).then(d => results.dailyData = d).catch(e => {}),
       API.getWarning(locationId).then(d => results.warnings = d).catch(e => {}),
-      // Open-Meteo：地理编码 → 逐小时三层云量数据（静默失败不影响主流程）
+      // Open-Meteo：GPS 定位直接使用经纬度，搜索城市则先地理编码（静默失败不影响主流程）
       (async () => {
-        if (!cityName) return;
-        const geo = await OpenMeteo.geocode(cityName);
-        if (geo) results.omData = await OpenMeteo.getHourlyData(geo.lat, geo.lon);
+        const city = this.currentCity;
+        if (!city) return;
+        // GPS 定位已有精确坐标，直接请求，跳过地理编码
+        if (city.lat != null && city.lon != null) {
+          results.omData = await OpenMeteo.getHourlyData(city.lat, city.lon);
+        } else if (city.name) {
+          const geo = await OpenMeteo.geocode(city.name);
+          if (geo) results.omData = await OpenMeteo.getHourlyData(geo.lat, geo.lon);
+        }
       })().catch(() => {}),
     ];
     await Promise.allSettled(tasks);
