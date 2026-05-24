@@ -1277,10 +1277,13 @@ function getSkyType(weatherNow, sunrise, sunset) {
 // 时间感知霞光标签 — 根据当前时间判断"今"还是"明"
 function getGlowLabels(sunData) {
   const now = Date.now();
+  const BUFFER_MS = 120 * 60 * 1000; // 2小时缓冲：晚霞/朝霞在事件后仍持续一段时间
   const sr = sunData?.sunrise ? new Date(sunData.sunrise).getTime() : 0;
   const ss = sunData?.sunset ? new Date(sunData.sunset).getTime() : 0;
-  const sunsetLabel = (ss && now > ss) ? '明晚晚霞' : '今晚晚霞';
-  const sunriseLabel = (sr && now > sr) ? '明晨朝霞' : '今晨朝霞';
+  // 日落2小时后才算当晚结束，切换至明晚
+  const sunsetLabel = (ss && now > ss + BUFFER_MS) ? '明晚晚霞' : '今晚晚霞';
+  // 日出2小时后才算今晨结束，切换至明晨
+  const sunriseLabel = (sr && now > sr + BUFFER_MS) ? '明晨朝霞' : '今晨朝霞';
   return { sunsetLabel, sunriseLabel };
 }
 
