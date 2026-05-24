@@ -1100,19 +1100,93 @@ const CalcEngine = {
     return { icon, name, illumination: Math.round(illum), moonrise, moonset, starTip };
   },
 
-  // 综合摄影指数 (0-100) — 10维加权
+  // 综合摄影指数 (0-100) — 9维加权，火烧云不再重复计算
   getPhotoIndex(ctx) {
+    const month = new Date().getMonth() + 1;
+    const text = ctx.weatherText || '';
+
+    // 1. 霞光 (20%) — 取朝晚霞较高者
+    const glowScore = Math.max(ctx.sunriseGlow, ctx.sunsetGlow);
+
+    // 2. 能见度 (15%)
+    const visScore = Math.min(100, ctx.visibilityKm * 5);
+
+    // 3. 天空层次 (12%) — 总云量评估，云太多或太少都不好
+    const cc = ctx.cloudCover;
+    let skyScore;
+    if (cc >= 10 && cc <= 30) skyScore = 100;       // 白云点缀，蓝天可见
+    else if (cc > 30 && cc <= 60) skyScore = 90;     // 多云有层次
+    else if (cc > 60 && cc <= 80) skyScore = 60;     // 偏阴，天空发白
+    else if (cc > 80) skyScore = 25;                  // 阴沉，灰白一片
+    else skyScore = 80;                                // 晴空万里（<10%，干净但缺层次）
+    // OM 高云数据微调：高云多+低云少是火烧云前提也是好天空
+    if (ctx.omActive && ctx.highCloud != null && ctx.highCloud >= 30 && (ctx.lowCloud != null && ctx.lowCloud < 30)) {
+      skyScore = Math.max(skyScore, 95);
+    }
+
+    // 4. 降水状态 (12%)
+    const hasRain = text.includes('雨');
+    const hasSnow = text.includes('雪');
+    let precipScore;
+    if (hasRain || hasSnow) {
+      precipScore = 10;           // 正在下，无法户外拍摄
+    } else if (ctx.isPostRain) {
+      precipScore = 100;          // 雨后初晴，空气最通透
+    } else if (cc > 85 && !ctx.isClear) {
+      precipScore = 40;           // 阴沉可能快下雨
+    } else {
+      precipScore = 70;           // 正常无雨
+    }
+
+    // 5. 湿度 (8%)
+    let humScore;
+    if (ctx.humidity >= 35 && ctx.humidity <= 65) humScore = 100;
+    else if (ctx.humidity >= 25 && ctx.humidity <= 80) humScore = 70;
+    else if (ctx.humidity >= 15 && ctx.humidity <= 90) humScore = 40;
+    else humScore = 15;
+
+    // 6. 风力 (7%)
+    let windScore;
+    if (ctx.windSpeed >= 3 && ctx.windSpeed <= 16) windScore = 100;
+    else if (ctx.windSpeed >= 1.5 && ctx.windSpeed <= 22) windScore = 65;
+    else if (ctx.windSpeed < 1.5) windScore = 40;  // 无风可能有霾
+    else windScore = 20;
+
+    // 7. 温度 (6%)
+    let tempScore;
+    if (ctx.temp >= 15 && ctx.temp <= 28) tempScore = 100;
+    else if (ctx.temp >= 5 && ctx.temp <= 35) tempScore = 60;
+    else tempScore = 25;
+
+    // 8. 月相 (10%) — 星空/夜景权重提升
+    const mi = ctx.moonIllum;
+    let moonScore;
+    if (mi < 15) moonScore = 100;       // 新月，银河窗口
+    else if (mi < 30) moonScore = 90;   // 残月，星空好
+    else if (mi < 50) moonScore = 70;   // 弦月，可兼顾地景
+    else if (mi < 70) moonScore = 50;   // 盈凸月，月光较强
+    else moonScore = 30;                 // 满月，银河不可见
+
+    // 9. 季节与环境加成 (10%)
+    let bonusScore = 50;
+    if (ctx.isAutumn) bonusScore += 25;           // 秋天是风光摄影黄金季
+    else if (month >= 3 && month <= 5) bonusScore += 20;  // 春天
+    else if (month === 12 || month <= 2) bonusScore += 10; // 冬天
+    // 夏天不加分（+0）
+    if (ctx.tempDiff > 10) bonusScore += 15;      // 昼夜温差大→晨雾/平流雾概率
+    if (ctx.omActive) bonusScore += 10;           // 高精度数据可用
+    bonusScore = Math.min(100, bonusScore);
+
     const scores = [
-      { name: '霞光', weight: 0.20, score: Math.max(ctx.sunriseGlow, ctx.sunsetGlow) },
-      { name: '能见度', weight: 0.18, score: Math.min(100, ctx.visibilityKm * 5) },
-      { name: '高云', weight: 0.12, score: ctx.highCloud != null ? (ctx.highCloud >= 30 && ctx.highCloud <= 75 ? 100 : ctx.highCloud >= 15 && ctx.highCloud <= 85 ? 65 : 30) : 50 },
-      { name: '中云', weight: 0.07, score: ctx.midCloud != null ? (ctx.midCloud >= 25 && ctx.midCloud <= 65 ? 100 : ctx.midCloud >= 15 && ctx.midCloud <= 75 ? 65 : 30) : 50 },
-      { name: '低云', weight: 0.05, score: ctx.lowCloud != null ? (ctx.lowCloud < 20 ? 100 : ctx.lowCloud < 40 ? 65 : 25) : 50 },
-      { name: '辐射', weight: 0.10, score: ctx.radScore != null ? ctx.radScore : 50 },
-      { name: '湿度', weight: 0.08, score: ctx.humidity >= 40 && ctx.humidity <= 65 ? 100 : ctx.humidity >= 25 && ctx.humidity <= 80 ? 65 : 30 },
-      { name: '风力', weight: 0.07, score: ctx.windSpeed >= 5 && ctx.windSpeed <= 15 ? 100 : ctx.windSpeed < 20 ? 65 : 30 },
-      { name: '温度', weight: 0.07, score: ctx.temp >= 15 && ctx.temp <= 28 ? 100 : ctx.temp >= 5 && ctx.temp <= 35 ? 60 : 25 },
-      { name: '月相', weight: 0.06, score: ctx.moonIllum ? (ctx.moonIllum < 20 ? 100 : ctx.moonIllum < 60 ? 65 : 30) : 50 },
+      { name: '霞光', weight: 0.20, score: glowScore },
+      { name: '能见度', weight: 0.15, score: visScore },
+      { name: '天空层次', weight: 0.12, score: skyScore },
+      { name: '降水状态', weight: 0.12, score: precipScore },
+      { name: '湿度', weight: 0.08, score: humScore },
+      { name: '风力', weight: 0.07, score: windScore },
+      { name: '温度', weight: 0.06, score: tempScore },
+      { name: '月相', weight: 0.10, score: moonScore },
+      { name: '季节环境', weight: 0.10, score: bonusScore },
     ];
     const total = Math.round(scores.reduce((sum, s) => sum + s.score * s.weight, 0));
     const label = total >= 75 ? '适宜拍摄' : total >= 50 ? '可以出门' : '不太理想';
@@ -1373,7 +1447,7 @@ function renderPhotoGauge(photoIndex, sunData, omActive) {
   const card = document.getElementById('card-gauge');
   card.className = 'relative z-10 text-center py-8 card-enter';
   const dataSrc = omActive ? '高精度：Open-Meteo 分层云量 + 辐射实测' : '基础：和风天气（Open-Meteo 未响应）';
-  const detailText = `综合摄影指数 ${photoIndex.total}/100\n\n10维度加权评分模型：\n${photoIndex.scores.map(s => `${s.name}：${Math.round(s.score)}分（权重${Math.round(s.weight*100)}%）`).join('\n')}\n\n数据源：${dataSrc}\n总分 = 各维度得分 × 权重 之和\n点击各维度胶囊可查看单项说明`;
+  const detailText = `综合摄影指数 ${photoIndex.total}/100\n\n9维加权评分模型（2026.05 优化）：\n${photoIndex.scores.map(s => `${s.name}：${Math.round(s.score)}分（权重${Math.round(s.weight*100)}%）`).join('\n')}\n\n数据源：${dataSrc}\n火烧云由霞光维度独立评估（不再拆分云层重复计算）\n天空层次/降水状态/季节环境为新增维度\n总分 = 各维度得分 × 权重 之和\n点击各维度胶囊可查看单项说明`;
   const tipMsg = photoIndex.improvement || `摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`;
   const scoreAngle = photoIndex.total * 1.8; // 0-100 → 0-180deg
 
@@ -1452,10 +1526,10 @@ function renderMetricsGrid(ctx, weatherNow, moonInfo, sunData) {
   };
   const cellData = [
     { icon:'🔥', val:`${ctx.sunsetGlow}%`, label:glowLabels.sunsetLabel, sub:ssLabel, glow:ctx.sunsetGlow,
-      tip:`10维度加权模型：高云(15%)、辐射质量(10%)、能见度(15%)、雨后初晴(12%)、湿度(10%)、风速(8%)、季节(8%)、气压(7%)、中云(10%)、低云(5%)。数据源：${dataSrc}。云量20-70%且有变化为佳，雨后初晴是最佳窗口。`,
+      tip:`10维度火烧云预测模型：高云(15%)、辐射质量(10%)、能见度(15%)、雨后初晴(12%)、湿度(10%)、风速(8%)、季节(8%)、气压(7%)、中云(10%)、低云(5%)。数据源：${dataSrc}。综合摄影指数已优化为9维新模型（霞光不重复计算云层）。`,
       vCls: ctx.sunsetGlow >= 70 ? 'text-golden' : ctx.sunsetGlow >= 50 ? 'text-amber-400' : 'text-slate-400' },
     { icon:'🌅', val:`${ctx.sunriseGlow}%`, label:glowLabels.sunriseLabel, sub:srLabel, glow:ctx.sunriseGlow,
-      tip:`朝霞湿度通常更高，颜色偏粉红；晚霞云层更活跃，颜色偏橙红。同一10维度模型独立计算，朝霞参考凌晨逐小时数据。数据源：${dataSrc}。`,
+      tip:`朝霞湿度通常更高，颜色偏粉红；晚霞云层更活跃，颜色偏橙红。同一10维火烧云模型独立计算早晚。数据源：${dataSrc}。综合摄影指数已优化为9维新模型。`,
       vCls: ctx.sunriseGlow >= 70 ? 'text-golden' : ctx.sunriseGlow >= 50 ? 'text-amber-400' : 'text-slate-400' },
     { icon:'👁️', val:`${ctx.visibilityKm}`, unit:'km', label:'能见度', sub:vis.level,
       tip:`${vis.desc}。优先API实测值，无数据时由天气文字+露点差+湿度+云量+风速+气压交叉估算。`,
@@ -1645,7 +1719,7 @@ function renderFutureDays(dailyData, weatherNow, moonInfo) {
     const cloudScore = (cloudCover >= 20 && cloudCover <= 70) ? 90 : (cloudCover >= 10 && cloudCover <= 85) ? 55 : 20;
     const humScore = (humidity >= 35 && humidity <= 65) ? 90 : (humidity >= 25 && humidity <= 80) ? 65 : 30;
     const glowEst = Math.round(cloudScore * 0.4 + humScore * 0.25 + (isPostRain ? 25 : 0) + (isAutumn ? 10 : 0));
-    const idx = CalcEngine.getPhotoIndex({ visibilityKm, sunriseGlow: glowEst, sunsetGlow: glowEst, cloudCover, humidity, windSpeed, temp, isAutumn, isPostRain, isMorning: true, moonIllum: currMoonIllum });
+    const idx = CalcEngine.getPhotoIndex({ visibilityKm, sunriseGlow: glowEst, sunsetGlow: glowEst, cloudCover, humidity, windSpeed, temp, isAutumn, isPostRain, isMorning: true, moonIllum: currMoonIllum, weatherText: d.textDay || '', tempDiff: 8, omActive: false, isClear: icon === '100' || icon === '101' });
     return { day: dayLabels[i], icon, tempMax: d.tempMax, tempMin: d.tempMin, textDay: d.textDay || '', idx };
   });
 
