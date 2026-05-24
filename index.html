@@ -1478,9 +1478,9 @@ function renderPhotoGauge(photoIndex, sunData, omActive) {
         const barW = Math.min(100, s.score);
         const barC = barW >= 70 ? 'bg-emerald-400' : barW >= 50 ? 'bg-amber-400' : 'bg-slate-500';
         return `<div class="flex items-center gap-1.5 px-2 py-1.5 rounded-full bg-white/5 border border-white/5 cursor-pointer active:scale-90 transition-transform" onclick="event.stopPropagation();App.showToast('${s.name}: ${Math.round(s.score)}分 — 权重${Math.round(s.weight*100)}%，综合摄影指数维度之一')">
-          <span class="text-slate-400 truncate">${s.name}</span>
-          <span class="text-slate-200 font-bold">${Math.round(s.score)}</span>
-          <div class="w-6 h-1 bg-slate-700 rounded-full overflow-hidden flex-shrink-0"><div class="h-full ${barC} rounded-full" style="width:${barW}%"></div></div>
+          <span class="text-slate-400 w-12 flex-shrink-0 text-right">${s.name}</span>
+          <span class="text-slate-200 font-bold w-6 flex-shrink-0 text-right tabular-nums">${Math.round(s.score)}</span>
+          <div class="flex-1 h-1 bg-slate-700 rounded-full overflow-hidden min-w-0"><div class="h-full ${barC} rounded-full" style="width:${barW}%"></div></div>
         </div>`;
       }).join('')}
     </div>
