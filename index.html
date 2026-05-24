@@ -503,7 +503,79 @@ const Cache = {
 };
 
 // ===========================
-// API 模块
+// Open-Meteo API — 免费无需Key · 三层云量 · 能见度 · 辐射
+// ===========================
+const OpenMeteo = {
+  BASE: 'https://api.open-meteo.com/v1',
+  GEO_BASE: 'https://geocoding-api.open-meteo.com/v1',
+
+  async fetchJSON(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`OM HTTP ${resp.status}`);
+    return resp.json();
+  },
+
+  async geocode(cityName) {
+    const ck = `om_geo_${cityName}`;
+    const cached = Cache.get(ck, Infinity);
+    if (cached) return cached;
+    try {
+      const u = `${this.GEO_BASE}/search?name=${encodeURIComponent(cityName)}&count=1&language=zh`;
+      const d = await this.fetchJSON(u);
+      if (d.results && d.results.length) {
+        const r = d.results[0];
+        const out = { lat: r.latitude, lon: r.longitude, name: r.name };
+        Cache.set(ck, out, Infinity);
+        return out;
+      }
+    } catch (e) { console.warn('OM geocode fail:', e.message); }
+    return null;
+  },
+
+  async getHourlyData(lat, lon) {
+    const ck = `om_h_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+    const cached = Cache.get(ck, CONFIG.CACHE_WEATHER_MS);
+    if (cached) return cached;
+    try {
+      const p = `latitude=${lat}&longitude=${lon}&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,relative_humidity_2m,wind_speed_10m,surface_pressure,direct_radiation,diffuse_radiation,precipitation,temperature_2m,dew_point_2m&timezone=Asia/Shanghai&forecast_hours=24`;
+      const d = await this.fetchJSON(`${this.BASE}/forecast?${p}`);
+      Cache.set(ck, d, CONFIG.CACHE_WEATHER_MS);
+      return d;
+    } catch (e) { return null; }
+  },
+
+  extractHourly(data, targetHours) {
+    if (!data || !data.hourly) return null;
+    const h = data.hourly; const times = h.time || [];
+    let lo=0, mi=0, hi=0, tot=0, vis=0, hum=0, wnd=0, prs=0, dir=0, dif=0, pcp=0, tmp=0, dew=0, n=0;
+    for (let i = 0; i < times.length; i++) {
+      if (!targetHours.includes(new Date(times[i]).getHours())) continue;
+      lo  += (h.cloud_cover_low?.[i]    ?? 0);
+      mi  += (h.cloud_cover_mid?.[i]    ?? 0);
+      hi  += (h.cloud_cover_high?.[i]   ?? 0);
+      tot += (h.cloud_cover?.[i]        ?? 0);
+      vis += (h.visibility?.[i]         ?? 15000);
+      hum += (h.relative_humidity_2m?.[i] ?? 60);
+      wnd += (h.wind_speed_10m?.[i]     ?? 5);
+      prs += (h.surface_pressure?.[i]   ?? 1013);
+      dir += (h.direct_radiation?.[i]   ?? 0);
+      dif += (h.diffuse_radiation?.[i]  ?? 0);
+      pcp += (h.precipitation?.[i]      ?? 0);
+      tmp += (h.temperature_2m?.[i]     ?? 15);
+      dew += (h.dew_point_2m?.[i]       ?? 10);
+      n++;
+    }
+    if (!n) return null;
+    return {
+      cloudLow: lo/n, cloudMid: mi/n, cloudHigh: hi/n, cloudTotal: tot/n,
+      visibility: vis/n, humidity: hum/n, windSpeed: wnd/n, pressure: prs/n,
+      directRad: dir/n, diffuseRad: dif/n, precip: pcp, temp: tmp/n, dewPoint: dew/n, count: n
+    };
+  }
+};
+
+// ===========================
+// API 模块 (和风天气)
 // ===========================
 const API = {
   async fetchJSON(url) {
@@ -863,104 +935,143 @@ const CalcEngine = {
     return Math.max(0.3, Math.min(22, Math.round(baseVis)));
   },
 
-  getGlowProbability(hourlyData, isSunrise, weatherNow) {
+  // 火烧云/霞光概率 — 10维模型，优先用 Open-Meteo 三层云量数据
+  getGlowProbability(hourlyData, isSunrise, weatherNow, omData) {
     const targetHours = isSunrise ? [5, 6, 7, 8] : [16, 17, 18, 19];
-    let cloudSum = 0, humiditySum = 0, windSum = 0, precipSum = 0, count = 0;
-    let cloudMin = 100, cloudMax = 0;
-    for (const h of hourlyData) {
-      const hour = new Date(h.fxTime).getHours();
-      if (targetHours.includes(hour)) {
-        const c = parseInt(h.cloud) || 50;
-        cloudSum += c;
-        if (c < cloudMin) cloudMin = c;
-        if (c > cloudMax) cloudMax = c;
-        humiditySum += parseInt(h.humidity) || 0;
-        windSum += parseInt(h.windSpeed) || parseInt(h.windScale) * 3 || 0;
-        precipSum += parseFloat(h.precip) || 0;
-        count++;
-      }
-    }
-    if (count === 0 && weatherNow) {
-      const c = parseInt(weatherNow.cloud) || 50;
-      cloudSum = c; cloudMin = c; cloudMax = c;
-      humiditySum = parseInt(weatherNow.humidity) || 50;
-      windSum = parseInt(weatherNow.windSpeed) || 0;
-      precipSum = parseFloat(weatherNow.precip) || 0;
-      count = 1;
-    }
-    if (count === 0) return 0;
-    const avgCloud = cloudSum / count;
-    const avgHumidity = humiditySum / count;
-    const avgWind = windSum / count;
-    const avgPrecip = precipSum / count;
-    const text = (weatherNow?.text || '').toLowerCase();
-    const pressure = parseInt(weatherNow?.pressure) || 1013;
     const month = new Date().getMonth() + 1;
+    const text = (weatherNow?.text || '').toLowerCase();
 
-    // 云量评分：霞光需要 20-70% 的云量，太少没色彩，太多挡住光
-    let cloudScore;
-    const cloudSpread = cloudMax - cloudMin;
-    if (avgCloud >= 20 && avgCloud <= 70 && cloudSpread >= 10) cloudScore = 100;
-    else if (avgCloud >= 15 && avgCloud <= 75) cloudScore = 80;
-    else if (avgCloud >= 10 && avgCloud <= 85) cloudScore = 55;
-    else if (avgCloud >= 5 && avgCloud <= 95) cloudScore = 25;
-    else cloudScore = 10;
+    // 尝试从 Open-Meteo 提取分层云数据
+    const om = omData ? OpenMeteo.extractHourly(omData, targetHours) : null;
 
-    // 湿度评分：40-65% 气溶胶散射最佳
-    let humidityScore;
-    if (avgHumidity >= 35 && avgHumidity <= 65) humidityScore = 100;
-    else if (avgHumidity >= 25 && avgHumidity <= 80) humidityScore = 75;
-    else if (avgHumidity >= 15 && avgHumidity <= 90) humidityScore = 40;
-    else humidityScore = 15;
+    // ======= 1. 高云评分 (15%) — 卷云/卷层云最壮观 =======
+    let highCloudScore = 50;
+    if (om) {
+      const hc = om.cloudHigh;
+      if (hc >= 30 && hc <= 75 && om.cloudLow < 30) highCloudScore = 100;  // 高云多+低云少=完美
+      else if (hc >= 20 && hc <= 85 && om.cloudLow < 40) highCloudScore = 80;
+      else if (hc >= 10 && hc <= 90) highCloudScore = 55;
+      else if (hc > 90) highCloudScore = 20;  // 满云，挡住
+      else highCloudScore = 30;                // 高云太少，缺色彩载体
+    } else {
+      // 回退：用总云量估算
+      const c = this._avgHourly(hourlyData, targetHours, 'cloud', weatherNow);
+      highCloudScore = (c >= 20 && c <= 70) ? 75 : (c >= 10 && c <= 85) ? 50 : 20;
+    }
 
-    // 风速评分：微风最佳，静风或大风不利
-    let windScore;
-    if (avgWind >= 4 && avgWind <= 16) windScore = 100;
-    else if (avgWind >= 2 && avgWind <= 22) windScore = 70;
-    else if (avgWind < 2) windScore = 45;
-    else windScore = 25;
+    // ======= 2. 中云评分 (10%) — 高积云有橘红固态质感 =======
+    let midCloudScore = 50;
+    if (om) {
+      const mc = om.cloudMid;
+      if (mc >= 25 && mc <= 65 && om.cloudLow < 35) midCloudScore = 100;
+      else if (mc >= 15 && mc <= 75) midCloudScore = 75;
+      else if (mc > 80) midCloudScore = 20;
+      else midCloudScore = 40;
+    } else {
+      midCloudScore = 50;
+    }
 
-    // 降水评分：雨后初晴最佳，正在下雨则差
-    let precipScore;
-    const isPostRain = (text.includes('晴') || text.includes('多云')) && avgPrecip === 0 && !text.includes('雨');
-    if (isPostRain) precipScore = 100;
-    else if (text.includes('雨') && avgPrecip > 0) precipScore = 15;
-    else if (avgPrecip === 0 && !text.includes('雨')) precipScore = 65;
+    // ======= 3. 低云评分 (5%) — 低云<30%才能让夕阳照到云底 =======
+    let lowCloudScore = 50;
+    if (om) {
+      const lc = om.cloudLow;
+      if (lc < 20) lowCloudScore = 100;        // 低云极少，光照路径无遮挡
+      else if (lc < 30) lowCloudScore = 85;
+      else if (lc < 50) lowCloudScore = 55;
+      else lowCloudScore = 15;                   // 低云厚，完全挡光
+    }
+
+    // ======= 4. 大气透明度/能见度 (15%) — 替代旧版估算 =======
+    let visScore = 50;
+    if (om && om.visibility) {
+      const vkm = om.visibility / 1000;
+      if (vkm >= 15) visScore = 100;
+      else if (vkm >= 10) visScore = 85;
+      else if (vkm >= 6) visScore = 65;
+      else if (vkm >= 3) visScore = 40;
+      else visScore = 15;
+    } else {
+      const vis = this.estimateVisibility(
+        { text: weatherNow?.text, humidity: weatherNow?.humidity, cloud: weatherNow?.cloud, windSpeed: weatherNow?.windSpeed, pressure: weatherNow?.pressure }, null
+      );
+      visScore = Math.min(100, vis * 6);
+    }
+
+    // ======= 5. 雨后初晴 (12%) =======
+    let precipScore = 50;
+    const isPostRain = (text.includes('晴') || text.includes('多云')) && !text.includes('雨');
+    if (isPostRain && om && om.precip < 0.5) precipScore = 100;
+    else if (isPostRain && !om) precipScore = 85;
+    else if (text.includes('雨')) precipScore = 10;
+    else if (!text.includes('雨') && (om ? om.precip < 1 : true)) precipScore = 60;
     else precipScore = 30;
 
-    // 气压评分
-    let pressureScore;
-    if (pressure >= 1013 && pressure <= 1024) pressureScore = 100;
-    else if (pressure > 1024) pressureScore = 65;
-    else if (pressure >= 1005) pressureScore = 55;
-    else pressureScore = 25;
+    // ======= 6. 湿度 (10%) =======
+    const humidity = om ? om.humidity : this._avgHourly(hourlyData, targetHours, 'humidity', weatherNow);
+    let humScore;
+    if (humidity >= 35 && humidity <= 65) humScore = 100;
+    else if (humidity >= 25 && humidity <= 80) humScore = 70;
+    else if (humidity >= 15 && humidity <= 90) humScore = 40;
+    else humScore = 15;
 
-    // 季节评分：秋季 > 春季 > 冬季 > 夏季（夏季雷雨多，霞光不确定性高）
+    // ======= 7. 风速 (8%) =======
+    const wind = om ? om.windSpeed : this._avgHourly(hourlyData, targetHours, 'windSpeed', weatherNow);
+    let windScore;
+    if (wind >= 3 && wind <= 16) windScore = 100;
+    else if (wind >= 1.5 && wind <= 22) windScore = 65;
+    else if (wind < 1.5) windScore = 40;
+    else windScore = 20;
+
+    // ======= 8. 气压 (7%) =======
+    const pressure = om ? om.pressure : (parseInt(weatherNow?.pressure) || 1013);
+    let pressScore;
+    if (pressure >= 1013 && pressure <= 1024) pressScore = 100;
+    else if (pressure > 1024) pressScore = 65;
+    else if (pressure >= 1005) pressScore = 55;
+    else pressScore = 25;
+
+    // ======= 9. 季节 (8%) =======
     let seasonScore;
-    if (month >= 9 && month <= 11) seasonScore = 100;       // 秋
-    else if (month >= 3 && month <= 5) seasonScore = 85;     // 春
-    else if (month === 12 || month <= 2) seasonScore = 60;   // 冬
-    else seasonScore = 50;                                    // 夏
+    if (month >= 9 && month <= 11) seasonScore = 100;
+    else if (month >= 3 && month <= 5) seasonScore = 85;
+    else if (month === 12 || month <= 2) seasonScore = 60;
+    else seasonScore = 50;
 
-    // 大气洁净度评分（露点差）：干燥洁净空气散射更纯正的暖色调
-    let airQualityScore = 50;
-    const temp = parseInt(weatherNow?.temp) || 15;
-    const dewRaw = parseFloat(weatherNow?.dew);
-    if (!isNaN(dewRaw)) {
-      const spread = temp - dewRaw;
-      if (spread >= 8) airQualityScore = 100;       // 干燥洁净，散射纯正
-      else if (spread >= 5) airQualityScore = 80;    // 适中偏干
-      else if (spread >= 3) airQualityScore = 60;    // 适中
-      else if (spread >= 1.5) airQualityScore = 40;  // 偏湿，散射偏白
-      else airQualityScore = 20;                      // 近饱和，色彩发灰
+    // ======= 10. 辐射质量 (10%) — 直射/散射比，量化"光能不能打到云上" =======
+    let radScore = 50;
+    if (om && om.directRad > 0) {
+      const ratio = om.directRad / Math.max(1, om.diffuseRad);
+      if (ratio >= 2.5) radScore = 100;    // 直射光主导，夕阳能穿透
+      else if (ratio >= 1.5) radScore = 85;
+      else if (ratio >= 0.8) radScore = 65;
+      else if (ratio >= 0.3) radScore = 40; // 散射为主，光线发白
+      else radScore = 15;                    // 几乎无直射，云层太厚
+    } else if (!om) {
+      radScore = highCloudScore > 50 ? 70 : 50;  // 回退：云量推测
     }
 
-    // 加权综合：云量(30%) + 降水(18%) + 湿度(16%) + 风速(12%) + 气压(9%) + 季节(7%) + 大气洁净度(8%)
-    const total = cloudScore * 0.30 + precipScore * 0.18 + humidityScore * 0.16
-                + windScore * 0.12 + pressureScore * 0.09 + seasonScore * 0.07
-                + airQualityScore * 0.08;
+    const total = highCloudScore * 0.15 + midCloudScore * 0.10 + lowCloudScore * 0.05
+                + visScore * 0.15 + precipScore * 0.12 + humScore * 0.10
+                + windScore * 0.08 + pressScore * 0.07 + seasonScore * 0.08
+                + radScore * 0.10;
 
     return Math.min(95, Math.round(total));
+  },
+
+  // 辅助：从 QWeather 逐小时数据取平均值（无 Open-Meteo 时回退使用）
+  _avgHourly(hourlyData, targetHours, field, weatherNow) {
+    if (!hourlyData || !hourlyData.length) {
+      const fallback = { cloud: 50, humidity: 50, windSpeed: 0 };
+      return weatherNow ? (parseInt(weatherNow[field]) || fallback[field] || 50) : (fallback[field] || 50);
+    }
+    let sum = 0, n = 0;
+    for (const h of hourlyData) {
+      if (targetHours.includes(new Date(h.fxTime).getHours())) {
+        const v = field === 'cloud' ? parseInt(h.cloud) : field === 'humidity' ? parseInt(h.humidity) : parseInt(h.windSpeed) || 0;
+        sum += v || 0; n++;
+      }
+    }
+    return n > 0 ? sum / n : (weatherNow ? (parseInt(weatherNow[field]) || 50) : 50);
   },
 
   getMoonInfo(moonData) {
@@ -977,33 +1088,34 @@ const CalcEngine = {
     return { icon, name, illumination: Math.round(illum), moonrise, moonset, starTip };
   },
 
-  // 综合摄影指数 (0-100)
+  // 综合摄影指数 (0-100) — 10维加权
   getPhotoIndex(ctx) {
     const scores = [
-      { name: '能见度', weight: 0.25, score: Math.min(100, ctx.visibilityKm * 5) },
       { name: '霞光', weight: 0.20, score: Math.max(ctx.sunriseGlow, ctx.sunsetGlow) },
-      { name: '云量', weight: 0.15, score: ctx.cloudCover >= 25 && ctx.cloudCover <= 65 ? 100 : ctx.cloudCover >= 15 && ctx.cloudCover <= 80 ? 65 : ctx.cloudCover < 10 ? 40 : 20 },
-      { name: '湿度', weight: 0.10, score: ctx.humidity >= 40 && ctx.humidity <= 65 ? 100 : ctx.humidity >= 25 && ctx.humidity <= 80 ? 70 : 35 },
-      { name: '风力', weight: 0.10, score: ctx.windSpeed >= 5 && ctx.windSpeed <= 15 ? 100 : ctx.windSpeed < 20 ? 65 : 30 },
-      { name: '温度', weight: 0.10, score: ctx.temp >= 15 && ctx.temp <= 28 ? 100 : ctx.temp >= 5 && ctx.temp <= 35 ? 60 : 25 },
-      { name: '特殊', weight: 0.05, score: ctx.isAutumn ? 100 : ctx.isPostRain ? 85 : ctx.isMorning ? 70 : 55 },
-      { name: '月相', weight: 0.05, score: ctx.moonIllum ? (ctx.moonIllum < 20 ? 100 : ctx.moonIllum < 60 ? 65 : 30) : 50 },
+      { name: '能见度', weight: 0.18, score: Math.min(100, ctx.visibilityKm * 5) },
+      { name: '高云', weight: 0.12, score: ctx.highCloud != null ? (ctx.highCloud >= 30 && ctx.highCloud <= 75 ? 100 : ctx.highCloud >= 15 && ctx.highCloud <= 85 ? 65 : 30) : 50 },
+      { name: '中云', weight: 0.07, score: ctx.midCloud != null ? (ctx.midCloud >= 25 && ctx.midCloud <= 65 ? 100 : ctx.midCloud >= 15 && ctx.midCloud <= 75 ? 65 : 30) : 50 },
+      { name: '低云', weight: 0.05, score: ctx.lowCloud != null ? (ctx.lowCloud < 20 ? 100 : ctx.lowCloud < 40 ? 65 : 25) : 50 },
+      { name: '辐射', weight: 0.10, score: ctx.radScore != null ? ctx.radScore : 50 },
+      { name: '湿度', weight: 0.08, score: ctx.humidity >= 40 && ctx.humidity <= 65 ? 100 : ctx.humidity >= 25 && ctx.humidity <= 80 ? 65 : 30 },
+      { name: '风力', weight: 0.07, score: ctx.windSpeed >= 5 && ctx.windSpeed <= 15 ? 100 : ctx.windSpeed < 20 ? 65 : 30 },
+      { name: '温度', weight: 0.07, score: ctx.temp >= 15 && ctx.temp <= 28 ? 100 : ctx.temp >= 5 && ctx.temp <= 35 ? 60 : 25 },
+      { name: '月相', weight: 0.06, score: ctx.moonIllum ? (ctx.moonIllum < 20 ? 100 : ctx.moonIllum < 60 ? 65 : 30) : 50 },
     ];
     const total = Math.round(scores.reduce((sum, s) => sum + s.score * s.weight, 0));
     const label = total >= 75 ? '适宜拍摄' : total >= 50 ? '可以出门' : '不太理想';
     const color = total >= 75 ? '#34d399' : total >= 50 ? '#F59E0B' : '#94a3b8';
-    // 分档位文案
     let improvement = '';
     if (total >= 80) {
-      improvement = '光影绝佳，出门爽拍！带上相机，今日必出大片 🔥';
+      improvement = '光影绝佳，出门爽拍！带上相机，今日必出大片';
     } else if (total >= 65) {
-      improvement = '条件不错，值得出门，好光影不等人 📷';
+      improvement = '条件不错，值得出门，好光影不等人';
     } else if (total >= 50) {
-      improvement = '还能拍，但别太期待。换个角度，平凡里也能出奇片 ✨';
+      improvement = '还能拍，但别太期待。换个角度，平凡里也能出奇片';
     } else if (total >= 35) {
-      improvement = '别生气，大自然的灯光总会再亮起。今天先踩点，明天再战 🌤️';
+      improvement = '别生气，大自然的灯光总会再亮起';
     } else {
-      improvement = '今日宜宅家修图，好天气值得等待。翻开旧片，重温光影吧 🏠';
+      improvement = '今日宜宅家修图，好天气值得等待';
     }
     return { total, label, color, scores, improvement };
   }
@@ -1248,7 +1360,7 @@ function renderHourlyItems() {
 function renderPhotoGauge(photoIndex, sunData) {
   const card = document.getElementById('card-gauge');
   card.className = 'relative z-10 text-center py-8 card-enter';
-  const detailText = `综合摄影指数 ${photoIndex.total}/100\n\n8维度加权评分模型：\n${photoIndex.scores.map(s => `${s.name}：${Math.round(s.score)}分（权重${Math.round(s.weight*100)}%）`).join('\n')}\n\n总分 = 各维度得分 × 权重 之和\n点击各维度胶囊可查看单项说明`;
+  const detailText = `综合摄影指数 ${photoIndex.total}/100\n\n10维度加权评分模型：\n${photoIndex.scores.map(s => `${s.name}：${Math.round(s.score)}分（权重${Math.round(s.weight*100)}%）`).join('\n')}\n\n霞光预测由 Open-Meteo 分层云量数据驱动\n总分 = 各维度得分 × 权重 之和\n点击各维度胶囊可查看单项说明`;
   const tipMsg = photoIndex.improvement || `摄影指数 ${photoIndex.total}/100 · ${photoIndex.label}`;
   const scoreAngle = photoIndex.total * 1.8; // 0-100 → 0-180deg
 
@@ -1819,8 +1931,9 @@ const App = {
 
     showSkeletons();
     this.hideStaleBanner();
-    const results = { weatherNow: null, weather24h: null, sunData: null, airNow: null, moonData: null, dailyData: null, warnings: null };
+    const results = { weatherNow: null, weather24h: null, sunData: null, airNow: null, moonData: null, dailyData: null, warnings: null, omData: null };
     const errors = [];
+    const cityName = this.currentCity?.name || '';
     const tasks = [
       API.getWeatherNow(locationId).then(d => results.weatherNow = d).catch(e => errors.push('天气:'+e.message)),
       API.getWeather24h(locationId).then(d => results.weather24h = d).catch(e => errors.push('逐小时:'+e.message)),
@@ -1829,6 +1942,12 @@ const App = {
       API.getMoonPhase(locationId).then(d => results.moonData = d).catch(e => {}),
       API.getWeather3d(locationId).then(d => results.dailyData = d).catch(e => {}),
       API.getWarning(locationId).then(d => results.warnings = d).catch(e => {}),
+      // Open-Meteo：地理编码 → 逐小时三层云量数据（静默失败不影响主流程）
+      (async () => {
+        if (!cityName) return;
+        const geo = await OpenMeteo.geocode(cityName);
+        if (geo) results.omData = await OpenMeteo.getHourlyData(geo.lat, geo.lon);
+      })().catch(() => {}),
     ];
     await Promise.allSettled(tasks);
     if (!results.weatherNow) {
@@ -1847,17 +1966,21 @@ const App = {
   },
 
   updateUI(data) {
-    const { weatherNow, weather24h, sunData, airNow, moonData, dailyData, warnings } = data;
+    const { weatherNow, weather24h, sunData, airNow, moonData, dailyData, warnings, omData } = data;
     _hourlyData = weather24h || [];
 
-    const visibilityKm = CalcEngine.estimateVisibility(weatherNow, weather24h);
+    // 能见度优先用 Open-Meteo 实测值
+    const omSunset = omData ? OpenMeteo.extractHourly(omData, [16,17,18,19]) : null;
+    const omSunrise = omData ? OpenMeteo.extractHourly(omData, [5,6,7,8]) : null;
+    const omVis = omSunset || omSunrise;
+    const visibilityKm = omVis ? Math.round(omVis.visibility / 1000) : CalcEngine.estimateVisibility(weatherNow, weather24h);
 
     const hourlyData = weather24h || [];
-    const sunriseProb = CalcEngine.getGlowProbability(hourlyData, true, weatherNow);
-    const sunsetProb = CalcEngine.getGlowProbability(hourlyData, false, weatherNow);
+    const sunriseProb = CalcEngine.getGlowProbability(hourlyData, true, weatherNow, omData);
+    const sunsetProb = CalcEngine.getGlowProbability(hourlyData, false, weatherNow, omData);
     const moonInfo = CalcEngine.getMoonInfo(moonData);
 
-    const ctx = this.buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo);
+    const ctx = this.buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo, omData);
     const photoIndex = CalcEngine.getPhotoIndex(ctx);
     const recs = RecommendEngine.getRecommendations(ctx);
 
@@ -1912,7 +2035,7 @@ const App = {
     });
   },
 
-  buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo) {
+  buildContext(weatherNow, weather24h, visibilityKm, sunriseProb, sunsetProb, sunData, moonInfo, omData) {
     const icon = weatherNow.icon || '100';
     const now = new Date();
     const hour = now.getHours();
@@ -1932,6 +2055,21 @@ const App = {
     if (weather24h && weather24h.length > 0) {
       const temps = weather24h.map(h => parseInt(h.temp) || 0).filter(t => t !== 0);
       if (temps.length >= 2) tempDiff = Math.max(...temps) - Math.min(...temps);
+    }
+
+    // 从 Open-Meteo 提取云层和辐射数据
+    const targetH = isAutumn ? [16,17,18] : [17,18,19]; // 日落附近
+    const omSunset = omData ? OpenMeteo.extractHourly(omData, targetH) : null;
+    let highCloud = null, midCloud = null, lowCloud = null, radScore = null;
+
+    if (omSunset) {
+      highCloud = Math.round(omSunset.cloudHigh);
+      midCloud = Math.round(omSunset.cloudMid);
+      lowCloud = Math.round(omSunset.cloudLow);
+      if (omSunset.directRad > 0) {
+        const ratio = omSunset.directRad / Math.max(1, omSunset.diffuseRad);
+        radScore = ratio >= 2.5 ? 100 : ratio >= 1.5 ? 85 : ratio >= 0.8 ? 65 : ratio >= 0.3 ? 40 : 15;
+      }
     }
 
     return {
@@ -1955,7 +2093,8 @@ const App = {
       temp,
       dewPoint,
       moonIllum: moonInfo ? moonInfo.illumination : 50,
-      weatherText: weatherNow.text || ''
+      weatherText: weatherNow.text || '',
+      highCloud, midCloud, lowCloud, radScore
     };
   },
 
